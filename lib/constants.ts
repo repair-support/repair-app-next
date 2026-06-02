@@ -32,6 +32,15 @@ export const STORE_CODE_MAP: Record<StoreName, string> = {
 
 export const SERVICE_TYPES = ["修理受付", "買取査定", "郵送受付"] as const;
 
+export const SERVICE_BRANDS = [
+  "ダイワンテレコム",
+  "SWEEPMASTER",
+  "EarphoneMASTER",
+  "リペアマスター",
+  "SwitchMaster",
+  "ダイワンテレコム 買取",
+] as const;
+
 export const DEFAULT_STATUSES = [
   "受付中",
   "受付済み",
