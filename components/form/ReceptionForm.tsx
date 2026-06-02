@@ -11,7 +11,7 @@ type IssuedReception = {
   serviceType: string;
   customerName?: string;
   deviceModel?: string;
-  updateToken: string;
+  updateToken?: string;
 };
 
 type Completion = { receptionId: string; qr?: string };
@@ -103,7 +103,7 @@ export default function ReceptionForm({ store }: { store: string }) {
       const response = await fetch(`/api/form/reception/${encodeURIComponent(issued.receptionId)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, updateToken: issued.updateToken }),
+        body: JSON.stringify({ ...form, updateToken: issued.updateToken ?? "" }),
       });
       const body = await response.json();
       if (!body.ok) return setError(body.error ?? "受付を登録できませんでした。");

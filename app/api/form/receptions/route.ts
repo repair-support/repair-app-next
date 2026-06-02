@@ -15,7 +15,6 @@ export async function GET(request: NextRequest) {
         serviceType: item.serviceType,
         customerName: item.customerName,
         deviceModel: item.deviceModel,
-        updateToken: item.updateToken,
       }));
     return NextResponse.json({ ok: true, data });
   } catch (error) {
