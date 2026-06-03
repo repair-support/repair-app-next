@@ -64,6 +64,8 @@ export const RECEPTION_HEADERS = [
   "パネル種別", "スモールパーツ種別", "防水テープ施工", "保証有無", "生年月日",
   "自宅電話", "携帯電話", "メールアドレス", "ご職業", "本人確認書類",
   "端末データJSON", "決済方法", "コーティング", "強化ガラス", "QR更新トークン",
+  "買取承諾", "色", "キャリア", "SIMロック", "容量", "利用制限", "ランク", "修理箇所",
+  "BT残量", "付属品", "品目数", "査定員",
 ] as const;
 
 export function isStoreName(value: string): value is StoreName {

@@ -30,6 +30,18 @@ const editable: [keyof Reception, string][] = [
   ["occupation", "職業"],
   ["address", "住所"],
   ["idDocuments", "本人確認書類"],
+  ["purchaseAgreement", "買取承諾"],
+  ["color", "色"],
+  ["carrier", "キャリア"],
+  ["simLock", "SIMロック"],
+  ["capacity", "容量"],
+  ["usageRestriction", "利用制限"],
+  ["rank", "ランク"],
+  ["repairParts", "修理箇所"],
+  ["btLevel", "BT残量"],
+  ["accessories", "付属品"],
+  ["itemCount", "品目数"],
+  ["assessStaff", "査定員"],
   ["deviceCategory", "端末カテゴリ"],
   ["deviceModel", "機種名"],
   ["imei", "IMEI / シリアル"],
@@ -99,7 +111,7 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
           </select>
         </label>
         {editable.map(([name, label]) => {
-          const multiline = ["symptom", "repairContent", "internalMemo", "notes", "devicesJson"].includes(name);
+          const multiline = ["symptom", "repairContent", "internalMemo", "notes", "accessories", "devicesJson"].includes(name);
           return (
             <label className={multiline ? "sm:col-span-2" : undefined} key={name}>
               <span className="label">{label}</span>

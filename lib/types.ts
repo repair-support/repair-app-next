@@ -49,11 +49,23 @@ export interface Reception {
   email: string;
   occupation: string;
   idDocuments: string;
+  purchaseAgreement: string;
   devicesJson: string;
   paymentMethod: string;
   coating: string;
   temperedGlass: string;
   updateToken: string;
+  color: string;
+  carrier: string;
+  simLock: string;
+  capacity: string;
+  usageRestriction: string;
+  rank: string;
+  repairParts: string;
+  btLevel: string;
+  accessories: string;
+  itemCount: string;
+  assessStaff: string;
 }
 
 export interface MasterData {

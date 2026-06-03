@@ -22,6 +22,20 @@ const editableFields = [
   "waterproofTape",
   "coating",
   "temperedGlass",
+  "paymentMethod",
+  "idDocuments",
+  "purchaseAgreement",
+  "color",
+  "carrier",
+  "simLock",
+  "capacity",
+  "usageRestriction",
+  "rank",
+  "repairParts",
+  "btLevel",
+  "accessories",
+  "itemCount",
+  "assessStaff",
 ] as const;
 
 async function authorizedReception(request: NextRequest, id: string) {

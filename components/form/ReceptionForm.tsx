@@ -42,6 +42,11 @@ const yesNoOptions = ["あり", "なし"];
 const warrantyOptions = ["保証あり", "保証なし", "保証対象外", "確認中"];
 const panelOptions = ["未選択", "純正同等", "有機EL", "液晶", "再生パネル", "その他"];
 const smallPartsOptions = ["未選択", "バッテリー", "ドックコネクタ", "カメラ", "スピーカー", "ボタン", "その他"];
+const purchaseAgreementOptions = ["未承諾", "承諾済み"];
+const carrierOptions = ["未確認", "docomo", "au", "SoftBank", "楽天モバイル", "SIMフリー", "その他"];
+const simLockOptions = ["未確認", "解除済み", "SIMロックあり", "SIMフリー", "対象外"];
+const usageRestrictionOptions = ["未確認", "○", "△", "×", "-"];
+const rankOptions = ["未査定", "S", "A", "B", "C", "D", "ジャンク"];
 
 const standardTerms = [
   "修理作業によりメーカー保証が受けられなくなる場合があります。",
@@ -178,6 +183,18 @@ export default function ReceptionForm({ store }: { store: string }) {
     repairHistory: "",
     paymentMethod: "未定",
     idDocuments: "未確認",
+    purchaseAgreement: "未承諾",
+    carrier: "未確認",
+    simLock: "未確認",
+    usageRestriction: "未確認",
+    rank: "未査定",
+    itemCount: "1",
+    assessStaff: "",
+    color: "",
+    capacity: "",
+    repairParts: "",
+    btLevel: "",
+    accessories: "",
     waterproofTape: "",
     coating: "",
     temperedGlass: "",
@@ -316,6 +333,18 @@ export default function ReceptionForm({ store }: { store: string }) {
           repairPrice: primary.repairPrice,
           cost: primary.cost,
           repairHistory: isPurchase ? String(form.repairHistory || "買取受付") : form.repairHistory,
+          purchaseAgreement: isPurchase ? "承諾済み" : String(form.purchaseAgreement ?? ""),
+          color: form.color ?? "",
+          carrier: form.carrier ?? "",
+          simLock: form.simLock ?? "",
+          capacity: form.capacity ?? "",
+          usageRestriction: form.usageRestriction ?? "",
+          rank: form.rank ?? "",
+          repairParts: form.repairParts ?? "",
+          btLevel: form.btLevel ?? "",
+          accessories: form.accessories ?? "",
+          itemCount: form.itemCount || String(devices.length),
+          assessStaff: form.assessStaff ?? "",
           devicesJson: JSON.stringify(devices),
           updateToken: issued.updateToken ?? "",
         }),
@@ -416,6 +445,14 @@ export default function ReceptionForm({ store }: { store: string }) {
           {!isPurchase && <Confirm label="修理内容" value={primary.repairContent} />}
           <Confirm label={isPurchase ? "査定金額" : "修理金額"} value={primary.repairPrice} />
           {isPurchase && <Confirm label="本人確認書類" value={form.idDocuments} />}
+          {isPurchase && <Confirm label="色" value={form.color} />}
+          {isPurchase && <Confirm label="キャリア" value={form.carrier} />}
+          {isPurchase && <Confirm label="SIMロック" value={form.simLock} />}
+          {isPurchase && <Confirm label="容量" value={form.capacity} />}
+          {isPurchase && <Confirm label="利用制限" value={form.usageRestriction} />}
+          {isPurchase && <Confirm label="ランク" value={form.rank} />}
+          {isPurchase && <Confirm label="BT残量" value={form.btLevel} />}
+          {isPurchase && <Confirm label="付属品" value={form.accessories} />}
           {isPurchase && <Confirm label="支払方法" value={form.paymentMethod} />}
           <Confirm label="複数端末" value={`${devices.length}台`} />
         </dl>
@@ -492,10 +529,22 @@ export default function ReceptionForm({ store }: { store: string }) {
           {!isPurchase && <SelectField label="スモールパーツ種別" name="smallPartsType" value={form.smallPartsType} options={smallPartsOptions} onChange={set} />}
           {!isPurchase && <SelectField label="防水テープ施工" name="waterproofTape" value={form.waterproofTape} options={yesNoOptions} onChange={set} />}
           {!isPurchase && <SelectField label="保証有無" name="warrantyStatus" value={form.warrantyStatus} options={warrantyOptions} onChange={set} />}
+          {isPurchase && <TextField label="査定員" name="assessStaff" value={form.assessStaff} onChange={set} />}
+          {isPurchase && <TextField label="品目数" name="itemCount" value={form.itemCount} inputMode="numeric" onChange={set} />}
+          {isPurchase && <TextField label="色" name="color" value={form.color} onChange={set} />}
+          {isPurchase && <SelectField label="キャリア" name="carrier" value={form.carrier} options={carrierOptions} onChange={set} />}
+          {isPurchase && <SelectField label="SIMロック" name="simLock" value={form.simLock} options={simLockOptions} onChange={set} />}
+          {isPurchase && <TextField label="容量" name="capacity" value={form.capacity} onChange={set} />}
+          {isPurchase && <SelectField label="利用制限" name="usageRestriction" value={form.usageRestriction} options={usageRestrictionOptions} onChange={set} />}
+          {isPurchase && <SelectField label="ランク" name="rank" value={form.rank} options={rankOptions} onChange={set} />}
+          {isPurchase && <TextField label="修理箇所・状態" name="repairParts" value={form.repairParts} onChange={set} />}
+          {isPurchase && <TextField label="BT残量" name="btLevel" value={form.btLevel} onChange={set} />}
           <SelectField label="決済方法" name="paymentMethod" value={form.paymentMethod} options={paymentOptions} onChange={set} />
           {!isPurchase && <SelectField label="コーティング" name="coating" value={form.coating} options={yesNoOptions} onChange={set} />}
           {!isPurchase && <SelectField label="強化ガラス" name="temperedGlass" value={form.temperedGlass} options={yesNoOptions} onChange={set} />}
+          {isPurchase && <SelectField label="買取承諾" name="purchaseAgreement" value={form.purchaseAgreement} options={purchaseAgreementOptions} onChange={set} />}
         </div>
+        {isPurchase && <TextAreaField label="付属品" name="accessories" value={form.accessories} onChange={set} />}
         <TextAreaField label="追記事項" name="notes" value={form.notes} onChange={set} />
       </section>
 

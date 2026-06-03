@@ -20,7 +20,9 @@ const fields: (keyof Omit<Reception, "rowNumber">)[] = [
   "signatureData", "repairCategory", "lastUpdated", "panelType", "smallPartsType",
   "waterproofTape", "warrantyStatus", "birthdate", "homeTel", "mobileTel", "email",
   "occupation", "idDocuments", "devicesJson", "paymentMethod", "coating", "temperedGlass",
-  "updateToken",
+  "updateToken", "purchaseAgreement", "color", "carrier", "simLock", "capacity",
+  "usageRestriction", "rank", "repairParts", "btLevel", "accessories", "itemCount",
+  "assessStaff",
 ];
 
 function requireSpreadsheetId() {
@@ -52,7 +54,7 @@ export async function getReceptions(storeName: string): Promise<Reception[]> {
   if (!isStoreName(storeName)) throw new Error("Invalid store name");
   const response = await getSheetsClient().spreadsheets.values.get({
     spreadsheetId: requireSpreadsheetId(),
-    range: `'${storeName}'!A2:AR`,
+    range: `'${storeName}'!A2:BD`,
   });
   return (response.data.values ?? []).map((row, index) => toReception(row, index + 2));
 }
@@ -95,7 +97,7 @@ export async function createReception(storeName: string, initial: Partial<Recept
   };
   const result = await getSheetsClient().spreadsheets.values.append({
     spreadsheetId: requireSpreadsheetId(),
-    range: `'${storeName}'!A:AR`,
+    range: `'${storeName}'!A:BD`,
     valueInputOption: "RAW",
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [toRow(data)] },
@@ -110,7 +112,7 @@ export async function updateReception(storeName: string, receptionId: string, da
   const updated = { ...current, ...data, receptionId, storeName, lastUpdated: new Date().toISOString() };
   await getSheetsClient().spreadsheets.values.update({
     spreadsheetId: requireSpreadsheetId(),
-    range: `'${storeName}'!A${current.rowNumber}:AR${current.rowNumber}`,
+    range: `'${storeName}'!A${current.rowNumber}:BD${current.rowNumber}`,
     valueInputOption: "RAW",
     requestBody: { values: [toRow(updated)] },
   });
@@ -170,7 +172,7 @@ export async function setupSpreadsheet() {
   }
   const data = [
     ...(!existing.has("設定") ? [{ range: "設定!A1:B13", values: [["店舗名", "受付ID連番"], ...STORE_NAMES.map((store) => [store, 0])] }] : []),
-    ...STORE_NAMES.map((store) => ({ range: `'${store}'!A1:AR1`, values: [[...RECEPTION_HEADERS]] })),
+    ...STORE_NAMES.map((store) => ({ range: `'${store}'!A1:BD1`, values: [[...RECEPTION_HEADERS]] })),
     { range: "マスターデータ!A1:D1", values: [["端末カテゴリ", "機種名", "修理内容", "機種別修理内容"]] },
     { range: "ステータス!A1:A12", values: [["修理ステータス"], ...DEFAULT_STATUSES.map((status) => [status])] },
   ];

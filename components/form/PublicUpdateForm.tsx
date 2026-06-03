@@ -29,6 +29,11 @@ const SERVICE_BRANDS = [
 ];
 
 const YES_NO_OPTIONS = ["あり", "なし"];
+const PURCHASE_AGREEMENT_OPTIONS = ["未承諾", "承諾済み"];
+const CARRIER_OPTIONS = ["未確認", "docomo", "au", "SoftBank", "楽天モバイル", "SIMフリー", "その他"];
+const SIM_LOCK_OPTIONS = ["未確認", "解除済み", "SIMロックあり", "SIMフリー", "対象外"];
+const USAGE_RESTRICTION_OPTIONS = ["未確認", "○", "△", "×", "-"];
+const RANK_OPTIONS = ["未査定", "S", "A", "B", "C", "D", "ジャンク"];
 
 function toDatetimeLocal(value: string | undefined) {
   if (!value) return "";
@@ -55,6 +60,20 @@ function normalizeForm(data: PublicReception): Record<string, string> {
     waterproofTape: data.waterproofTape ?? "",
     coating: data.coating ?? "",
     temperedGlass: data.temperedGlass ?? "",
+    paymentMethod: data.paymentMethod ?? "",
+    idDocuments: data.idDocuments ?? "",
+    purchaseAgreement: data.purchaseAgreement ?? "",
+    color: data.color ?? "",
+    carrier: data.carrier ?? "",
+    simLock: data.simLock ?? "",
+    capacity: data.capacity ?? "",
+    usageRestriction: data.usageRestriction ?? "",
+    rank: data.rank ?? "",
+    repairParts: data.repairParts ?? "",
+    btLevel: data.btLevel ?? "",
+    accessories: data.accessories ?? "",
+    itemCount: data.itemCount ?? "",
+    assessStaff: data.assessStaff ?? "",
   };
 }
 
@@ -226,6 +245,7 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
     if (form.deviceCategory && master.repairMap[form.deviceCategory]) return master.repairMap[form.deviceCategory];
     return [];
   }, [form.deviceCategory, form.deviceModel, master]);
+  const isPurchase = (form.serviceType ?? "").includes("買取");
 
   function updateField(name: string, value: string) {
     setForm((current) => {
@@ -312,6 +332,28 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
         <TextAreaField label="店舗内メモ" name="internalMemo" value={form.internalMemo ?? ""} onChange={updateField} />
         <TextAreaField label="追記事項" name="notes" value={form.notes ?? ""} onChange={updateField} />
       </section>
+
+      {isPurchase && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-bold">買取査定情報</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            <TextField label="査定員" name="assessStaff" value={form.assessStaff ?? ""} onChange={updateField} />
+            <TextField label="品目数" name="itemCount" value={form.itemCount ?? ""} inputMode="numeric" onChange={updateField} />
+            <SelectField label="本人確認書類" name="idDocuments" value={form.idDocuments ?? ""} options={["未確認", "運転免許証", "マイナンバーカード", "健康保険証", "学生証", "その他"]} onChange={updateField} />
+            <SelectField label="買取承諾" name="purchaseAgreement" value={form.purchaseAgreement ?? ""} options={PURCHASE_AGREEMENT_OPTIONS} onChange={updateField} />
+            <TextField label="色" name="color" value={form.color ?? ""} onChange={updateField} />
+            <SelectField label="キャリア" name="carrier" value={form.carrier ?? ""} options={CARRIER_OPTIONS} onChange={updateField} />
+            <SelectField label="SIMロック" name="simLock" value={form.simLock ?? ""} options={SIM_LOCK_OPTIONS} onChange={updateField} />
+            <TextField label="容量" name="capacity" value={form.capacity ?? ""} onChange={updateField} />
+            <SelectField label="利用制限" name="usageRestriction" value={form.usageRestriction ?? ""} options={USAGE_RESTRICTION_OPTIONS} onChange={updateField} />
+            <SelectField label="ランク" name="rank" value={form.rank ?? ""} options={RANK_OPTIONS} onChange={updateField} />
+            <TextField label="修理箇所・状態" name="repairParts" value={form.repairParts ?? ""} onChange={updateField} />
+            <TextField label="BT残量" name="btLevel" value={form.btLevel ?? ""} onChange={updateField} />
+            <TextField label="決済方法" name="paymentMethod" value={form.paymentMethod ?? ""} onChange={updateField} />
+          </div>
+          <TextAreaField label="付属品" name="accessories" value={form.accessories ?? ""} onChange={updateField} />
+        </section>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-lg font-bold">返却・オプション</h2>
