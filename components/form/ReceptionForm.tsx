@@ -65,6 +65,10 @@ const brandTerms: Partial<Record<string, { warrantyDays: number; title: string }
   EarphoneMASTER: { warrantyDays: 8, title: "EarphoneMASTER 修理規約" },
 };
 
+function isPurchaseService(serviceType: string) {
+  return serviceType.includes("買取");
+}
+
 function TextField({
   label,
   name,
@@ -184,6 +188,7 @@ export default function ReceptionForm({ store }: { store: string }) {
   const [completion, setCompletion] = useState<Completion | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const isPurchase = isPurchaseService(serviceType);
 
   useEffect(() => {
     fetch("/api/master")
@@ -272,11 +277,18 @@ export default function ReceptionForm({ store }: { store: string }) {
     event.preventDefault();
     setError("");
     const primary = devices[0];
-    if (!form.customerName || !form.customerKana || !form.completeTel || !form.repairHistory) {
+    if (!form.customerName || !form.customerKana || !form.completeTel) {
       return setError("必須項目を入力してください。");
     }
-    if (!primary?.category || !primary.model || !primary.symptom) {
-      return setError("1台目の端末カテゴリ、機種名、症状を入力してください。");
+    if (!primary?.category || !primary.model) {
+      return setError("1台目の端末カテゴリ、機種名を入力してください。");
+    }
+    if (isPurchase) {
+      if (!form.idDocuments || form.idDocuments === "未確認") {
+        return setError("買取受付では本人確認書類を選択してください。");
+      }
+    } else if (!form.repairHistory || !primary.symptom) {
+      return setError("修理受付では過去の修理歴と症状を入力してください。");
     }
     if (!form.agreement || !form.signatureData) {
       return setError("同意チェックと署名が必要です。");
@@ -299,10 +311,11 @@ export default function ReceptionForm({ store }: { store: string }) {
           deviceCategory: primary.category,
           deviceModel: primary.model,
           imei: primary.imei,
-          symptom: primary.symptom,
-          repairContent: primary.repairContent,
+          symptom: isPurchase ? String(primary.symptom || "買取査定") : primary.symptom,
+          repairContent: isPurchase ? String(primary.repairContent || "買取査定") : primary.repairContent,
           repairPrice: primary.repairPrice,
           cost: primary.cost,
+          repairHistory: isPurchase ? String(form.repairHistory || "買取受付") : form.repairHistory,
           devicesJson: JSON.stringify(devices),
           updateToken: issued.updateToken ?? "",
         }),
@@ -399,9 +412,11 @@ export default function ReceptionForm({ store }: { store: string }) {
           <Confirm label="フリガナ" value={form.customerKana} />
           <Confirm label="連絡先" value={form.completeTel} />
           <Confirm label="端末" value={`${primary.category} ${primary.model}`} />
-          <Confirm label="症状" value={primary.symptom} />
-          <Confirm label="修理内容" value={primary.repairContent} />
-          <Confirm label="修理金額" value={primary.repairPrice} />
+          {!isPurchase && <Confirm label="症状" value={primary.symptom} />}
+          {!isPurchase && <Confirm label="修理内容" value={primary.repairContent} />}
+          <Confirm label={isPurchase ? "査定金額" : "修理金額"} value={primary.repairPrice} />
+          {isPurchase && <Confirm label="本人確認書類" value={form.idDocuments} />}
+          {isPurchase && <Confirm label="支払方法" value={form.paymentMethod} />}
           <Confirm label="複数端末" value={`${devices.length}台`} />
         </dl>
         {error && <p className="text-sm font-bold text-red-700">{error}</p>}
@@ -421,21 +436,21 @@ export default function ReceptionForm({ store }: { store: string }) {
         <div className="grid gap-4 md:grid-cols-2">
           <TextField label="お名前" name="customerName" required value={form.customerName} onChange={set} />
           <TextField label="フリガナ" name="customerKana" required value={form.customerKana} onChange={set} />
-          <TextField label="ご依頼端末の電話番号" name="deviceTel" value={form.deviceTel} inputMode="tel" onChange={set} />
+          <TextField label={isPurchase ? "買取端末の電話番号" : "ご依頼端末の電話番号"} name="deviceTel" value={form.deviceTel} inputMode="tel" onChange={set} />
           <TextField label="修理完了時の連絡先" name="completeTel" required value={form.completeTel} inputMode="tel" onChange={set} />
           <TextField label="生年月日" name="birthdate" type="date" value={form.birthdate} onChange={set} />
           <TextField label="自宅電話" name="homeTel" value={form.homeTel} inputMode="tel" onChange={set} />
           <TextField label="携帯電話" name="mobileTel" value={form.mobileTel} inputMode="tel" onChange={set} />
           <TextField label="メールアドレス" name="email" type="email" value={form.email} onChange={set} />
           <TextField label="職業" name="occupation" value={form.occupation} onChange={set} />
-          <SelectField label="本人確認書類" name="idDocuments" value={form.idDocuments} options={idDocumentOptions} onChange={set} />
+          <SelectField label="本人確認書類" name="idDocuments" required={isPurchase} value={form.idDocuments} options={idDocumentOptions} onChange={set} />
         </div>
         <TextField label="ご住所" name="address" value={form.address} onChange={set} />
       </section>
 
       <section className="card space-y-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-bold">端末・修理情報</h2>
+          <h2 className="text-xl font-bold">{isPurchase ? "買取端末情報" : "端末・修理情報"}</h2>
           <button className="button-secondary" type="button" onClick={addDevice}>端末を追加</button>
         </div>
         {devices.map((device, index) => {
@@ -451,29 +466,35 @@ export default function ReceptionForm({ store }: { store: string }) {
                 <SelectDeviceField label="端末カテゴリ" value={device.category} options={master?.categories ?? []} required={index === 0} onChange={(value) => updateDevice(index, "category", value)} />
                 <SelectDeviceField label="機種名" value={device.model} options={models} required={index === 0} onChange={(value) => updateDevice(index, "model", value)} />
                 <DeviceTextField label="IMEI / シリアル" value={device.imei} onChange={(value) => updateDevice(index, "imei", value)} />
-                <DeviceTextField label="修理金額" value={device.repairPrice} inputMode="decimal" onChange={(value) => updateDevice(index, "repairPrice", value)} />
-                <DeviceTextField label="原価" value={device.cost} inputMode="decimal" onChange={(value) => updateDevice(index, "cost", value)} />
+                <DeviceTextField label={isPurchase ? "査定金額" : "修理金額"} value={device.repairPrice} inputMode="decimal" onChange={(value) => updateDevice(index, "repairPrice", value)} />
+                {!isPurchase && <DeviceTextField label="原価" value={device.cost} inputMode="decimal" onChange={(value) => updateDevice(index, "cost", value)} />}
               </div>
-              <DeviceTextArea label="症状" value={device.symptom} onChange={(value) => updateDevice(index, "symptom", value)} />
-              <DeviceComboField label="修理内容" value={device.repairContent} options={repairOptions} onChange={(value) => updateDevice(index, "repairContent", value)} />
+              {isPurchase ? (
+                <DeviceTextArea label="端末状態・査定メモ" value={device.symptom} onChange={(value) => updateDevice(index, "symptom", value)} />
+              ) : (
+                <>
+                  <DeviceTextArea label="症状" value={device.symptom} onChange={(value) => updateDevice(index, "symptom", value)} />
+                  <DeviceComboField label="修理内容" value={device.repairContent} options={repairOptions} onChange={(value) => updateDevice(index, "repairContent", value)} />
+                </>
+              )}
             </div>
           );
         })}
       </section>
 
       <section className="card space-y-4">
-        <h2 className="text-xl font-bold">修理確認事項</h2>
+        <h2 className="text-xl font-bold">{isPurchase ? "買取確認事項" : "修理確認事項"}</h2>
         <div className="grid gap-4 md:grid-cols-2">
-          <SelectField label="過去の修理歴" name="repairHistory" required value={form.repairHistory} options={repairHistoryOptions} onChange={set} />
-          <TextField label="パスコード（任意）" name="passcode" value={form.passcode} onChange={set} />
-          <SelectField label="修理カテゴリ" name="repairCategory" value={form.repairCategory} options={["画面", "バッテリー", "水没", "基板", "その他"]} onChange={set} />
-          <SelectField label="パネル種別" name="panelType" value={form.panelType} options={panelOptions} onChange={set} />
-          <SelectField label="スモールパーツ種別" name="smallPartsType" value={form.smallPartsType} options={smallPartsOptions} onChange={set} />
-          <SelectField label="防水テープ施工" name="waterproofTape" value={form.waterproofTape} options={yesNoOptions} onChange={set} />
-          <SelectField label="保証有無" name="warrantyStatus" value={form.warrantyStatus} options={warrantyOptions} onChange={set} />
+          {!isPurchase && <SelectField label="過去の修理歴" name="repairHistory" required value={form.repairHistory} options={repairHistoryOptions} onChange={set} />}
+          {!isPurchase && <TextField label="パスコード（任意）" name="passcode" value={form.passcode} onChange={set} />}
+          {!isPurchase && <SelectField label="修理カテゴリ" name="repairCategory" value={form.repairCategory} options={["画面", "バッテリー", "水没", "基板", "その他"]} onChange={set} />}
+          {!isPurchase && <SelectField label="パネル種別" name="panelType" value={form.panelType} options={panelOptions} onChange={set} />}
+          {!isPurchase && <SelectField label="スモールパーツ種別" name="smallPartsType" value={form.smallPartsType} options={smallPartsOptions} onChange={set} />}
+          {!isPurchase && <SelectField label="防水テープ施工" name="waterproofTape" value={form.waterproofTape} options={yesNoOptions} onChange={set} />}
+          {!isPurchase && <SelectField label="保証有無" name="warrantyStatus" value={form.warrantyStatus} options={warrantyOptions} onChange={set} />}
           <SelectField label="決済方法" name="paymentMethod" value={form.paymentMethod} options={paymentOptions} onChange={set} />
-          <SelectField label="コーティング" name="coating" value={form.coating} options={yesNoOptions} onChange={set} />
-          <SelectField label="強化ガラス" name="temperedGlass" value={form.temperedGlass} options={yesNoOptions} onChange={set} />
+          {!isPurchase && <SelectField label="コーティング" name="coating" value={form.coating} options={yesNoOptions} onChange={set} />}
+          {!isPurchase && <SelectField label="強化ガラス" name="temperedGlass" value={form.temperedGlass} options={yesNoOptions} onChange={set} />}
         </div>
         <TextAreaField label="追記事項" name="notes" value={form.notes} onChange={set} />
       </section>
@@ -592,6 +613,17 @@ function DeviceComboField({ label, value, options, onChange }: { label: string; 
 
 function AgreementBox({ serviceType, store }: { serviceType: string; store: string }) {
   const brand = brandTerms[serviceType];
+  if (isPurchaseService(serviceType)) {
+    return (
+      <div className="space-y-2 rounded-xl bg-slate-50 p-4 text-sm leading-6">
+        <p className="font-bold">買取受付に関する確認事項</p>
+        <p>本人確認書類の内容と申込情報を確認したうえで買取受付を行います。</p>
+        <p>端末の状態、動作確認、ネットワーク利用制限、アクティベーションロック、残債状況等により、査定金額が変更または買取不可となる場合があります。</p>
+        <p>買取成立後は、端末内のデータ削除、初期化、SIMカード・記録媒体の抜き忘れがないことを確認してください。</p>
+        <p>盗難品、不正取得品、所有権に問題がある端末は買取できません。申込者は端末の正当な所有者であることを保証します。</p>
+      </div>
+    );
+  }
   if (store === "青森店" && serviceType === "ダイワンテレコム") {
     return (
       <div className="space-y-3 rounded-xl bg-slate-50 p-4 text-sm leading-6">
