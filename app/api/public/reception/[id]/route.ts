@@ -14,8 +14,10 @@ const editableFields = [
   "symptom",
   "repairContent",
   "repairPrice",
+  "cost",
   "returnPlanDate",
   "returnDate",
+  "internalMemo",
   "notes",
   "waterproofTape",
   "coating",
@@ -37,8 +39,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (!result) return apiError(new Error("URLが無効です"), 403);
     const data: Partial<typeof result.reception> = { ...result.reception };
     delete data.updateToken;
-    delete data.internalMemo;
-    delete data.cost;
     return NextResponse.json({ ok: true, data });
   } catch (error) {
     return apiError(error);

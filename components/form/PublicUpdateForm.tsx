@@ -47,8 +47,10 @@ function normalizeForm(data: PublicReception): Record<string, string> {
     symptom: data.symptom ?? "",
     repairContent: data.repairContent ?? "",
     repairPrice: data.repairPrice ?? "",
+    cost: data.cost ?? "",
     returnPlanDate: toDatetimeLocal(data.returnPlanDate),
     returnDate: toDatetimeLocal(data.returnDate),
+    internalMemo: data.internalMemo ?? "",
     notes: data.notes ?? "",
     waterproofTape: data.waterproofTape ?? "",
     coating: data.coating ?? "",
@@ -124,6 +126,42 @@ function SelectField({
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function ComboField({
+  label,
+  name,
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  name: string;
+  value: string;
+  options: string[];
+  placeholder?: string;
+  onChange: (name: string, value: string) => void;
+}) {
+  const listId = `${name}-options`;
+  return (
+    <label>
+      <span className="label">{label}</span>
+      <input
+        className="input"
+        list={listId}
+        name={name}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(name, event.target.value)}
+      />
+      <datalist id={listId}>
+        {options.map((option) => (
+          <option key={option} value={option} />
+        ))}
+      </datalist>
     </label>
   );
 }
@@ -267,9 +305,11 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
           <SelectField label="機種名" name="deviceModel" value={form.deviceModel ?? ""} options={deviceModels} onChange={updateField} />
           <TextField label="IMEI / シリアル" name="imei" value={form.imei ?? ""} onChange={updateField} />
           <TextField label="修理料金" name="repairPrice" value={form.repairPrice ?? ""} inputMode="decimal" onChange={updateField} />
+          <TextField label="原価" name="cost" value={form.cost ?? ""} inputMode="decimal" onChange={updateField} />
         </div>
         <TextAreaField label="症状" name="symptom" value={form.symptom ?? ""} onChange={updateField} />
-        <SelectField label="修理内容" name="repairContent" value={form.repairContent ?? ""} options={repairOptions} placeholder="手入力または選択" onChange={updateField} />
+        <ComboField label="修理内容" name="repairContent" value={form.repairContent ?? ""} options={repairOptions} placeholder="候補から選択、または手入力" onChange={updateField} />
+        <TextAreaField label="店舗内メモ" name="internalMemo" value={form.internalMemo ?? ""} onChange={updateField} />
         <TextAreaField label="追記事項" name="notes" value={form.notes ?? ""} onChange={updateField} />
       </section>
 

@@ -9,5 +9,10 @@ export default async function DetailPage({ params }: { params: Promise<{ store: 
   if (!isStoreName(decoded)) notFound();
   const reception = await getReceptionById(decoded, decodeURIComponent(id));
   if (!reception) notFound();
-  return <main className="mx-auto max-w-4xl p-6"><h1 className="mb-6 text-3xl font-bold">{reception.receptionId} 詳細編集</h1><ReceptionDetail initial={reception} /></main>;
+  return (
+    <main className="mx-auto max-w-4xl p-6">
+      <h1 className="mb-6 text-3xl font-bold">{reception.receptionId} 詳細編集</h1>
+      <ReceptionDetail initial={reception} />
+    </main>
+  );
 }
