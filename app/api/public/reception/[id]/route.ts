@@ -3,7 +3,24 @@ import { storeFromReceptionId } from "@/lib/constants";
 import { apiError } from "@/lib/http";
 import { getReceptionById, updateReception } from "@/lib/sheets";
 
-const editableFields = ["status", "returnDate", "waterproofTape", "coating", "temperedGlass"] as const;
+const editableFields = [
+  "status",
+  "staffName",
+  "repairStaff",
+  "serviceType",
+  "deviceCategory",
+  "deviceModel",
+  "imei",
+  "symptom",
+  "repairContent",
+  "repairPrice",
+  "returnPlanDate",
+  "returnDate",
+  "notes",
+  "waterproofTape",
+  "coating",
+  "temperedGlass",
+] as const;
 
 async function authorizedReception(request: NextRequest, id: string) {
   const store = storeFromReceptionId(id);
