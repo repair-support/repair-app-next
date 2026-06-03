@@ -216,16 +216,16 @@ export default function ReceptionForm({ store }: { store: string }) {
       <section className="card space-y-4">
         <p className="text-sm font-bold text-blue-700">STEP 2</p>
         <h2 className="text-xl font-bold">お客様情報</h2>
-        <TextField label="お名前" name="customerName" required />
-        <TextField label="フリガナ" name="customerKana" required />
-        <TextField label="ご依頼端末の電話番号" name="deviceTel" />
-        <TextField label="修理完了時の連絡先" name="completeTel" required />
-        <TextField label="ご住所" name="address" />
+        <TextField label="お名前" name="customerName" required value={form.customerName} onChange={set} />
+        <TextField label="フリガナ" name="customerKana" required value={form.customerKana} onChange={set} />
+        <TextField label="ご依頼端末の電話番号" name="deviceTel" value={form.deviceTel} onChange={set} />
+        <TextField label="修理完了時の連絡先" name="completeTel" required value={form.completeTel} onChange={set} />
+        <TextField label="ご住所" name="address" value={form.address} onChange={set} />
       </section>
       <section className="card space-y-4">
         <h2 className="text-xl font-bold">修理確認事項</h2>
         <label><span className="label">過去の修理歴</span><select className="input" required value={String(form.repairHistory ?? "")} onChange={(event) => set("repairHistory", event.target.value)}><option value="">選択してください</option>{repairHistoryOptions.map((value) => <option key={value}>{value}</option>)}</select></label>
-        <TextField label="パスコード（任意）" name="passcode" />
+        <TextField label="パスコード（任意）" name="passcode" value={form.passcode} onChange={set} />
         <p className="text-xs text-slate-500">修理前後の動作確認のため、パスコードを使用する場合があります。</p>
       </section>
       <section className="card space-y-4">
@@ -246,10 +246,6 @@ export default function ReceptionForm({ store }: { store: string }) {
     </form>
   );
 
-  function TextField({ label, name, required = false }: { label: string; name: string; required?: boolean }) {
-    return <label><span className="label">{label}{required && <span className="ml-1 text-red-600">必須</span>}</span><input className="input" required={required} value={String(form[name] ?? "")} onChange={(event) => set(name, event.target.value)} /></label>;
-  }
-
   function printManagementLabel(done: Completion) {
     const escapeHtml = (value: unknown) => String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[char] ?? char));
     const row = (label: string, value: unknown) => value ? `<div class="irow"><span class="il">${label}</span><span class="iv">${escapeHtml(value)}</span></div>` : "";
@@ -267,6 +263,27 @@ export default function ReceptionForm({ store }: { store: string }) {
     printWindow.document.write(labelHtml);
     printWindow.document.close();
   }
+}
+
+function TextField({
+  label,
+  name,
+  required = false,
+  value,
+  onChange,
+}: {
+  label: string;
+  name: string;
+  required?: boolean;
+  value: unknown;
+  onChange: (name: string, value: string) => void;
+}) {
+  return (
+    <label>
+      <span className="label">{label}{required && <span className="ml-1 text-red-600">必須</span>}</span>
+      <input className="input" required={required} value={String(value ?? "")} onChange={(event) => onChange(name, event.target.value)} />
+    </label>
+  );
 }
 
 function Confirm({ label, value }: { label: string; value: unknown }) {
