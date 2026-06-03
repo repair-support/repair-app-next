@@ -23,6 +23,13 @@ const editable: [keyof Reception, string][] = [
   ["customerKana", "フリガナ"],
   ["completeTel", "連絡先"],
   ["deviceTel", "依頼端末の電話番号"],
+  ["birthdate", "生年月日"],
+  ["homeTel", "自宅電話"],
+  ["mobileTel", "携帯電話"],
+  ["email", "メールアドレス"],
+  ["occupation", "職業"],
+  ["address", "住所"],
+  ["idDocuments", "本人確認書類"],
   ["deviceCategory", "端末カテゴリ"],
   ["deviceModel", "機種名"],
   ["imei", "IMEI / シリアル"],
@@ -30,10 +37,21 @@ const editable: [keyof Reception, string][] = [
   ["repairContent", "修理内容"],
   ["repairPrice", "修理料金"],
   ["cost", "原価"],
+  ["repairCategory", "修理カテゴリ"],
+  ["panelType", "パネル種別"],
+  ["smallPartsType", "スモールパーツ種別"],
+  ["waterproofTape", "防水テープ施工"],
+  ["warrantyStatus", "保証有無"],
+  ["paymentMethod", "決済方法"],
+  ["coating", "コーティング"],
+  ["temperedGlass", "強化ガラス"],
+  ["repairHistory", "過去の修理歴"],
+  ["passcode", "パスコード"],
   ["returnPlanDate", "来店予定日"],
   ["returnDate", "返却日"],
   ["internalMemo", "店舗内メモ"],
   ["notes", "追記事項"],
+  ["devicesJson", "端末データJSON"],
 ];
 
 export default function ReceptionDetail({ initial }: { initial: Reception }) {
@@ -80,12 +98,19 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
             ))}
           </select>
         </label>
-        {editable.map(([name, label]) => (
-          <label key={name}>
-            <span className="label">{label}</span>
-            <input className="input" value={String(form[name] ?? "")} onChange={(event) => setForm({ ...form, [name]: event.target.value })} />
-          </label>
-        ))}
+        {editable.map(([name, label]) => {
+          const multiline = ["symptom", "repairContent", "internalMemo", "notes", "devicesJson"].includes(name);
+          return (
+            <label className={multiline ? "sm:col-span-2" : undefined} key={name}>
+              <span className="label">{label}</span>
+              {multiline ? (
+                <textarea className="input min-h-24" value={String(form[name] ?? "")} onChange={(event) => setForm({ ...form, [name]: event.target.value })} />
+              ) : (
+                <input className="input" value={String(form[name] ?? "")} onChange={(event) => setForm({ ...form, [name]: event.target.value })} />
+              )}
+            </label>
+          );
+        })}
       </div>
       {message && <p className="font-bold text-green-700">{message}</p>}
       <div className="flex flex-wrap gap-3">

@@ -2,9 +2,19 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import { isStoreName } from "@/lib/constants";
 import { getReceptionById } from "@/lib/sheets";
+import type { Device } from "@/lib/types";
 
 function valueOrPending(value: string | undefined) {
   return value || "未確定";
+}
+
+function parseDevices(value: string): Device[] {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 export default async function PrintPage({ params }: { params: Promise<{ store: string; id: string }> }) {
@@ -13,6 +23,7 @@ export default async function PrintPage({ params }: { params: Promise<{ store: s
   if (!isStoreName(decoded)) notFound();
   const data = await getReceptionById(decoded, decodeURIComponent(id));
   if (!data) notFound();
+  const devices = parseDevices(data.devicesJson);
 
   return (
     <main className="mx-auto max-w-[210mm] bg-white p-8 text-sm">
@@ -37,6 +48,22 @@ export default async function PrintPage({ params }: { params: Promise<{ store: s
         <p className="mt-2 whitespace-pre-wrap">{data.symptom}</p>
         <p className="mt-2 whitespace-pre-wrap">{data.repairContent}</p>
       </section>
+      {devices.length > 1 && (
+        <section className="mt-6 rounded-lg border p-4">
+          <h2 className="font-bold">複数端末情報</h2>
+          <div className="mt-3 space-y-3">
+            {devices.map((device, index) => (
+              <div className="rounded-lg bg-slate-50 p-3" key={index}>
+                <p className="font-bold">端末 {index + 1}: {device.category} {device.model}</p>
+                <p>IMEI / シリアル: {device.imei}</p>
+                <p>症状: {device.symptom}</p>
+                <p>修理内容: {device.repairContent}</p>
+                <p>修理料金: {valueOrPending(device.repairPrice)}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
       <p className="mt-6 text-2xl font-bold">修理料金: {valueOrPending(data.repairPrice)}</p>
       {data.signatureData && (
         <Image className="mt-6 max-h-36 border object-contain" src={data.signatureData} alt="署名" width={480} height={160} unoptimized />

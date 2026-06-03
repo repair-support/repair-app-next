@@ -6,7 +6,7 @@ import { getReceptions } from "@/lib/sheets";
 export async function GET(request: NextRequest) {
   try {
     const store = request.nextUrl.searchParams.get("store") ?? "";
-    if (!isStoreName(store)) return apiError(new Error("店舗名が不正です"), 400);
+    if (!isStoreName(store)) return apiError(new Error("店舗名が不正です。"), 400);
     const data = (await getReceptions(store))
       .filter((item) => item.status === "受付中")
       .map((item) => ({
