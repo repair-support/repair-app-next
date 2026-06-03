@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "修理受付アプリ",
-  description: "店舗向け修理受付管理",
+  description: "店舗向け修理受付管理アプリ",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

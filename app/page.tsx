@@ -17,7 +17,9 @@ export default function Home() {
           </Link>
         ))}
       </div>
-      <Link className="mt-8 inline-block text-sm font-bold text-blue-700" href="/admin">スタッフ管理画面へ</Link>
+      <Link className="mt-8 inline-block text-sm font-bold text-blue-700" href="/admin">
+        スタッフ管理画面へ
+      </Link>
     </main>
   );
 }
