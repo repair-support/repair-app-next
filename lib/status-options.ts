@@ -42,6 +42,11 @@ export function completedStatusFromLists(lists: StatusLists, serviceType: string
   return options[1] ?? options[0] ?? "";
 }
 
+export function returnedStatusFromLists(lists: StatusLists, serviceType: string | undefined | null) {
+  const options = isPurchaseServiceType(serviceType) ? lists.purchase : lists.repair;
+  return options.find((status) => status.includes("返却済み")) ?? options.at(-2) ?? options.at(-1) ?? "";
+}
+
 export function isInitialStatusForService(lists: StatusLists, serviceType: string | undefined | null, status: string | undefined | null) {
   return String(status ?? "") === initialStatusFromLists(lists, serviceType);
 }

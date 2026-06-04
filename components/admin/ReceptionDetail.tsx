@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { statusStyle } from "@/lib/status-style";
-import { DEFAULT_STATUS_LISTS, statusOptionsForService } from "@/lib/status-options";
+import { DEFAULT_STATUS_LISTS, returnedStatusFromLists, statusOptionsForService } from "@/lib/status-options";
 import { CostOption, CostReferenceData, Reception } from "@/lib/types";
 
 const editable: [keyof Reception, string][] = [
@@ -59,10 +59,13 @@ const editable: [keyof Reception, string][] = [
 export default function ReceptionDetail({ initial }: { initial: Reception }) {
   const router = useRouter();
   const [form, setForm] = useState(initial);
+  const [returnDate, setReturnDate] = useState(toDatetimeLocal(initial.returnDate) || toDatetimeLocal(new Date().toISOString()));
+  const [showReturnModal, setShowReturnModal] = useState(false);
   const [costReference, setCostReference] = useState<CostReferenceData | null>(null);
   const [statusLists, setStatusLists] = useState(DEFAULT_STATUS_LISTS);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [message, setMessage] = useState("");
+  const [returnPending, setReturnPending] = useState(false);
   const canPrint = form.status === "申込書発行済" || form.status === "返却済み" || form.serviceType.includes("買取");
 
   useEffect(() => {
@@ -124,6 +127,32 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
     if (!confirm("この受付を削除しますか？")) return;
     const response = await fetch(`/api/reception/${encodeURIComponent(form.receptionId)}?store=${encodeURIComponent(form.storeName)}`, { method: "DELETE" });
     if (response.ok) router.push(`/admin/${encodeURIComponent(form.storeName)}`);
+  }
+
+  async function confirmReturnAndPrint() {
+    setReturnPending(true);
+    setMessage("");
+    try {
+      const next = {
+        ...form,
+        status: returnedStatusFromLists(statusLists, form.serviceType),
+        returnDate: returnDate ? new Date(returnDate).toISOString() : new Date().toISOString(),
+      };
+      const response = await fetch(`/api/reception/${encodeURIComponent(form.receptionId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(next),
+      });
+      if (!response.ok) throw new Error("返却更新に失敗しました。");
+      setForm(next);
+      setShowReturnModal(false);
+      setMessage("返却済みに更新しました。印刷画面を開きます。");
+      window.open(`/admin/${encodeURIComponent(form.storeName)}/${encodeURIComponent(form.receptionId)}/print`, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "返却更新に失敗しました。");
+    } finally {
+      setReturnPending(false);
+    }
   }
 
   return (
@@ -199,6 +228,9 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
         <button className="button" type="submit">
           変更を保存
         </button>
+        <button className="button-secondary" type="button" onClick={() => setShowReturnModal(true)}>
+          返却済みにして印刷
+        </button>
         {canPrint ? (
           <a className="button-secondary" href={`/admin/${encodeURIComponent(form.storeName)}/${encodeURIComponent(form.receptionId)}/print`} target="_blank">
             申込書を印刷
@@ -212,6 +244,36 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
           削除
         </button>
       </div>
+      {showReturnModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <section className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-xl">
+            <h2 className="text-xl font-bold">返却確認</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              返却日を保存し、ステータスを「{returnedStatusFromLists(statusLists, form.serviceType)}」に更新してから申込書を開きます。
+            </p>
+            <label className="mt-4 block">
+              <span className="label">返却日時</span>
+              <input className="input" type="datetime-local" value={returnDate} onChange={(event) => setReturnDate(event.target.value)} />
+            </label>
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <button className="button-secondary" disabled={returnPending} type="button" onClick={() => setShowReturnModal(false)}>
+                キャンセル
+              </button>
+              <button className="button disabled:opacity-50" disabled={returnPending} type="button" onClick={confirmReturnAndPrint}>
+                {returnPending ? "更新中..." : "返却済みに更新して印刷"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </form>
   );
+}
+
+function toDatetimeLocal(value: string | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.length >= 16 ? value.slice(0, 16) : value;
+  const offset = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
