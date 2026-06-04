@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { statusStyle } from "@/lib/status-style";
 import { CostOption, CostReferenceData, Reception } from "@/lib/types";
 
 const FALLBACK_STATUSES = [
@@ -139,15 +140,20 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
   return (
     <form className="space-y-5" onSubmit={save}>
       <div className="card grid gap-4 sm:grid-cols-2">
-        <label>
+        <label className="sm:col-span-2">
           <span className="label">ステータス</span>
-          <select className="input" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-block rounded-full border px-3 py-1 text-sm font-bold" style={statusStyle(form.status)}>
+              {form.status || "未設定"}
+            </span>
+            <select className="input max-w-sm font-bold" style={statusStyle(form.status)} value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })}>
             {statuses.map((value) => (
               <option key={value} value={value}>
                 {value}
               </option>
             ))}
-          </select>
+            </select>
+          </div>
         </label>
         {editable.map(([name, label]) => {
           const multiline = ["symptom", "repairContent", "internalMemo", "notes", "accessories", "devicesJson"].includes(name);

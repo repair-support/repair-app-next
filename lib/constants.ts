@@ -71,6 +71,27 @@ export const DEFAULT_PURCHASE_STATUSES = [
   "キャンセル",
 ] as const;
 
+export const STATUS_COLOR_MAP: Record<string, string> = {
+  受付中: "#dbeafe",
+  受付済み: "#bfdbfe",
+  査定受付中: "#ede9fe",
+  査定済み: "#ddd6fe",
+  見積中: "#fef9c3",
+  連絡待ち: "#fed7aa",
+  パーツ発注中: "#e9d5ff",
+  修理中: "#fef08a",
+  修理完了: "#bbf7d0",
+  申込書発行済: "#86efac",
+  来店予約: "#99f6e4",
+  返却済み: "#d1d5db",
+  キャンセル: "#fecaca",
+  未出品: "#f3f4f6",
+  出品中: "#bfdbfe",
+  出品保留: "#fef9c3",
+  売却済み: "#bbf7d0",
+  廃棄: "#fecaca",
+};
+
 export const RECEPTION_HEADERS = [
   "受付ID", "受付日時", "受付担当", "修理担当者", "ステータス", "端末カテゴリ",
   "機種名", "IMEI", "症状", "修理内容", "修理料金", "原価", "来店予定日",

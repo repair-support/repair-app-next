@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { statusStyle } from "@/lib/status-style";
 import type { CostOption, CostReferenceData, MasterData, Reception } from "@/lib/types";
 
 type PublicReception = Partial<Reception> & { receptionId: string };
@@ -139,6 +140,34 @@ function SelectField({
       <span className="label">{label}</span>
       <select className="input" name={name} value={value} onChange={(event) => onChange(name, event.target.value)}>
         <option value="">{placeholder}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function StatusSelectField({
+  label,
+  name,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  name: string;
+  value: string;
+  options: string[];
+  onChange: (name: string, value: string) => void;
+}) {
+  return (
+    <label>
+      <span className="label">{label}</span>
+      <select className="input font-bold" name={name} style={statusStyle(value)} value={value} onChange={(event) => onChange(name, event.target.value)}>
+        <option value="">未選択</option>
         {options.map((option) => (
           <option key={option} value={option}>
             {option}
@@ -357,7 +386,7 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
       <section className="space-y-3">
         <h2 className="text-lg font-bold">受付・作業状況</h2>
         <div className="grid gap-4 md:grid-cols-2">
-          <SelectField label="ステータス" name="status" value={form.status ?? ""} options={statuses} onChange={updateField} />
+          <StatusSelectField label="ステータス" name="status" value={form.status ?? ""} options={statuses} onChange={updateField} />
           <SelectField label="サービス種別" name="serviceType" value={form.serviceType ?? ""} options={SERVICE_BRANDS} onChange={updateField} />
           <SelectField label="受付担当" name="staffName" value={form.staffName ?? ""} options={staffOptions} onChange={updateField} />
           <SelectField label="修理担当" name="repairStaff" value={form.repairStaff ?? ""} options={staffOptions} onChange={updateField} />

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { statusCardStyle, statusStyle } from "@/lib/status-style";
 import { Reception } from "@/lib/types";
 
 const FALLBACK_STATUSES = [
@@ -101,12 +102,17 @@ export default function ReceptionList({ initial, store }: { initial: Reception[]
       </div>
       <div className="space-y-3">
         {filtered.map((item) => (
-          <article className="card" key={item.receptionId}>
+          <article className="card border-l-8" key={item.receptionId} style={statusCardStyle(item.status)}>
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <Link className="font-bold text-blue-700" href={`/admin/${encodeURIComponent(store)}/${encodeURIComponent(item.receptionId)}`}>
-                {item.receptionId} {item.customerName || "お名前未入力"}
-              </Link>
-              <select className="rounded-lg border px-2 py-1 text-sm" value={item.status} onChange={(event) => changeStatus(item, event.target.value)}>
+              <div>
+                <Link className="font-bold text-blue-700" href={`/admin/${encodeURIComponent(store)}/${encodeURIComponent(item.receptionId)}`}>
+                  {item.receptionId} {item.customerName || "お名前未入力"}
+                </Link>
+                <span className="ml-2 inline-block rounded-full border px-2 py-0.5 text-xs font-bold" style={statusStyle(item.status)}>
+                  {item.status || "未設定"}
+                </span>
+              </div>
+              <select className="rounded-lg border px-2 py-1 text-sm font-bold" style={statusStyle(item.status)} value={item.status} onChange={(event) => changeStatus(item, event.target.value)}>
                 {statuses.map((value) => (
                   <option key={value} value={value}>
                     {value}
