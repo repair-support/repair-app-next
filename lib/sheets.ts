@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { google, sheets_v4 } from "googleapis";
 import {
+  DEFAULT_PURCHASE_STATUSES,
   DEFAULT_STATUSES,
   RECEPTION_HEADERS,
   STORE_CODE_MAP,
@@ -139,9 +140,9 @@ export async function deleteReception(storeName: string, receptionId: string) {
 export async function getStatuses(): Promise<string[]> {
   const response = await getSheetsClient().spreadsheets.values.get({
     spreadsheetId: requireSpreadsheetId(),
-    range: "ステータス!A2:A",
+    range: "ステータス!A2:B",
   });
-  return (response.data.values ?? []).map((row) => row[0]).filter(Boolean);
+  return Array.from(new Set((response.data.values ?? []).flatMap((row) => [row[0], row[1]]).filter(Boolean)));
 }
 
 export async function getMasterData(): Promise<MasterData> {
@@ -176,7 +177,16 @@ export async function setupSpreadsheet() {
     ...(!existing.has("設定") ? [{ range: "設定!A1:B13", values: [["店舗名", "受付ID連番"], ...STORE_NAMES.map((store) => [store, 0])] }] : []),
     ...STORE_NAMES.map((store) => ({ range: `'${store}'!A1:BD1`, values: [[...RECEPTION_HEADERS]] })),
     { range: "マスターデータ!A1:D1", values: [["端末カテゴリ", "機種名", "修理内容", "機種別修理内容"]] },
-    { range: "ステータス!A1:A12", values: [["修理ステータス"], ...DEFAULT_STATUSES.map((status) => [status])] },
+    {
+      range: "ステータス!A1:B12",
+      values: [
+        ["修理ステータス", "買取ステータス"],
+        ...Array.from({ length: Math.max(DEFAULT_STATUSES.length, DEFAULT_PURCHASE_STATUSES.length) }, (_, index) => [
+          DEFAULT_STATUSES[index] ?? "",
+          DEFAULT_PURCHASE_STATUSES[index] ?? "",
+        ]),
+      ],
+    },
   ];
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,

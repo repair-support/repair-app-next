@@ -55,6 +55,16 @@ export const DEFAULT_STATUSES = [
   "キャンセル",
 ] as const;
 
+export const DEFAULT_PURCHASE_STATUSES = [
+  "査定受付中",
+  "査定済み",
+  "未出品",
+  "出品中",
+  "売却済み",
+  "返却済み",
+  "キャンセル",
+] as const;
+
 export const RECEPTION_HEADERS = [
   "受付ID", "受付日時", "受付担当", "修理担当者", "ステータス", "端末カテゴリ",
   "機種名", "IMEI", "症状", "修理内容", "修理料金", "原価", "来店予定日",
