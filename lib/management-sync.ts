@@ -10,6 +10,30 @@ const CUSTOMER_MGMT_SHEET_NAME = "顧客管理";
 const CUSTOMER_MGMT_ID_HEADER = "受付ID(管理用)";
 const CUSTOMER_MGMT_LINKS_SHEET_NAME = "顧客管理表一覧";
 const CUSTOMER_MGMT_LINK_HEADERS = ["店舗名", "年月", "スプレッドシートID", "URL", "更新日時"] as const;
+const SALES_DETAIL_SHEET_NAME = "売上明細";
+const SALES_SUMMARY_SHEET_NAME = "売上管理表";
+const DAILY_SALES_SHEET_NAME = "日別売上報告";
+const CASH_SHEET_NAME = "金庫現金在高";
+const INCOME_EXPENSE_SHEET_NAME = "収支表";
+
+const SALES_DETAIL_HEADERS = [
+  "管理ID",
+  "受付ID",
+  "日付",
+  "店舗名",
+  "サービス種別",
+  "カテゴリ",
+  "端末",
+  "修理内容",
+  "顧客名",
+  "売上",
+  "原価",
+  "粗利",
+  "決済方法",
+  "ステータス",
+  "備考",
+  "更新日時",
+] as const;
 
 const CUSTOMER_MGMT_HEADERS = [
   "No.",
@@ -120,6 +144,11 @@ function yenNumber(value: string) {
   return Number.isFinite(number) && number !== 0 ? number : "";
 }
 
+function moneyNumber(value: string) {
+  const number = Number(String(value || "").replace(/[^\d.-]/g, ""));
+  return Number.isFinite(number) ? number : 0;
+}
+
 function storeSheetName(storeName: string) {
   return storeName.replace(/店$/, "");
 }
@@ -165,8 +194,44 @@ function monthLabel(key: string) {
   return `${year}年${Number(month)}月`;
 }
 
+function monthParts(key: string) {
+  const [year, month] = key.split("-").map(Number);
+  return { year, month, days: new Date(year, month, 0).getDate() };
+}
+
 function customerMgmtTargetDate(reception: Pick<Reception, "returnDate" | "receptionDate" | "lastUpdated">) {
   return reception.returnDate || reception.receptionDate || reception.lastUpdated;
+}
+
+function salesDate(reception: Pick<Reception, "returnDate" | "receptionDate" | "lastUpdated">) {
+  return dateOnly(customerMgmtTargetDate(reception));
+}
+
+function isCanceled(reception: Pick<Reception, "status">) {
+  return reception.status.includes("キャンセル");
+}
+
+function isSalesTarget(reception: Reception) {
+  if (isCanceled(reception)) return false;
+  if (reception.status.includes("返却済み")) return true;
+  return Boolean(reception.returnDate);
+}
+
+function salesCategory(source: {
+  deviceCategory: string;
+  deviceModel: string;
+  repairContent: string;
+}) {
+  const text = `${source.deviceCategory} ${source.deviceModel} ${source.repairContent}`;
+  if (/iPhone/i.test(text)) return "iPhone";
+  if (/iPad/i.test(text)) return "iPad";
+  if (/Pixel|Xperia|AQUOS|Galaxy|OPPO|Huawei|Android/i.test(text)) return "Android";
+  if (/Mac|Windows|WinPC|Surface|PC/i.test(text)) return "PC";
+  if (/dyson|Dyson|Roomba|掃除機/i.test(text)) return "掃除機";
+  if (/Switch|ゲーム|Controller|コントローラー/i.test(text)) return "ゲーム機";
+  if (/Apple Watch/i.test(text)) return "Apple Watch";
+  if (/イヤホン|Earphone/i.test(text)) return "イヤホン";
+  return "その他";
 }
 
 function colNumToLetter(n: number) {
@@ -417,6 +482,292 @@ function customerRowFromHeaders(headers: unknown[], source: ReturnType<typeof cu
   });
 }
 
+async function setupSalesDetailSheet(sheets: sheets_v4.Sheets, spreadsheetId: string) {
+  await ensureSheet(sheets, spreadsheetId, SALES_DETAIL_SHEET_NAME);
+  const values = await readValues(sheets, spreadsheetId, `'${SALES_DETAIL_SHEET_NAME}'!A1:P1`);
+  if ((values[0] ?? []).join("") === "") {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${SALES_DETAIL_SHEET_NAME}'!A1:P1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[...SALES_DETAIL_HEADERS]] },
+    });
+  }
+}
+
+function salesDetailRows(reception: Reception) {
+  const date = salesDate(reception);
+  return customerSourceRows(reception).map((source) => {
+    const sales = moneyNumber(String(source.repairPrice ?? ""));
+    const cost = moneyNumber(String(source.cost ?? ""));
+    return [
+      source.managedId,
+      reception.receptionId,
+      date,
+      reception.storeName,
+      reception.serviceType,
+      salesCategory(source),
+      source.device,
+      source.repairContent,
+      reception.customerName,
+      sales,
+      cost,
+      sales - cost,
+      reception.paymentMethod || "未定",
+      reception.status,
+      reception.notes,
+      new Date().toISOString(),
+    ];
+  });
+}
+
+async function removeSalesDetailRows(sheets: sheets_v4.Sheets, spreadsheetId: string, receptionId: string) {
+  await setupSalesDetailSheet(sheets, spreadsheetId);
+  const rows = await readValues(sheets, spreadsheetId, `'${SALES_DETAIL_SHEET_NAME}'!A2:P`);
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetId = metadata.data.sheets?.find((sheet) => sheet.properties?.title === SALES_DETAIL_SHEET_NAME)?.properties?.sheetId;
+  if (sheetId === undefined) return;
+  const rowNumbers = rows
+    .map((row, index) => ({ managedId: String(row[0] ?? ""), receptionId: String(row[1] ?? ""), rowNumber: index + 2 }))
+    .filter((row) => row.receptionId === receptionId || row.managedId === receptionId || row.managedId.startsWith(`${receptionId}#`))
+    .map((row) => row.rowNumber)
+    .sort((a, b) => b - a);
+  for (const rowNumber of rowNumbers) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ deleteDimension: { range: {
+        sheetId,
+        dimension: "ROWS",
+        startIndex: rowNumber - 1,
+        endIndex: rowNumber,
+      } } }] },
+    });
+  }
+}
+
+async function upsertSalesDetails(sheets: sheets_v4.Sheets, spreadsheetId: string, reception: Reception) {
+  await setupSalesDetailSheet(sheets, spreadsheetId);
+  await removeSalesDetailRows(sheets, spreadsheetId, reception.receptionId);
+  if (!isSalesTarget(reception)) return;
+  const rows = salesDetailRows(reception);
+  if (!rows.length) return;
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `'${SALES_DETAIL_SHEET_NAME}'!A:P`,
+    valueInputOption: "USER_ENTERED",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: rows },
+  });
+}
+
+function dayNumber(value: unknown) {
+  const date = new Date(String(value ?? ""));
+  if (Number.isNaN(date.getTime())) return 0;
+  return Number(new Intl.DateTimeFormat("ja-JP", { timeZone: "Asia/Tokyo", day: "numeric" }).format(date));
+}
+
+type SalesDetail = {
+  managedId: string;
+  date: string;
+  category: string;
+  sales: number;
+  cost: number;
+  profit: number;
+  paymentMethod: string;
+};
+
+function parseSalesDetails(rows: unknown[][]): SalesDetail[] {
+  return rows
+    .map((row) => ({
+      managedId: String(row[0] ?? ""),
+      date: String(row[2] ?? ""),
+      category: String(row[5] ?? "その他") || "その他",
+      sales: moneyNumber(String(row[9] ?? "")),
+      cost: moneyNumber(String(row[10] ?? "")),
+      profit: moneyNumber(String(row[11] ?? "")),
+      paymentMethod: String(row[12] ?? ""),
+    }))
+    .filter((row) => row.managedId);
+}
+
+function sumBy(details: SalesDetail[], predicate: (detail: SalesDetail) => boolean, field: "sales" | "cost" | "profit") {
+  return details.filter(predicate).reduce((total, detail) => total + detail[field], 0);
+}
+
+function countBy(details: SalesDetail[], predicate: (detail: SalesDetail) => boolean) {
+  return details.filter(predicate).length;
+}
+
+async function writeSheetValues(sheets: sheets_v4.Sheets, spreadsheetId: string, sheetName: string, values: unknown[][]) {
+  await ensureSheet(sheets, spreadsheetId, sheetName);
+  await sheets.spreadsheets.values.clear({ spreadsheetId, range: `'${sheetName}'` });
+  if (!values.length) return;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${sheetName}'!A1`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: { values },
+  });
+}
+
+async function rebuildSalesSummarySheets(sheets: sheets_v4.Sheets, spreadsheetId: string, key: string) {
+  await setupSalesDetailSheet(sheets, spreadsheetId);
+  const detailRows = await readValues(sheets, spreadsheetId, `'${SALES_DETAIL_SHEET_NAME}'!A2:P`);
+  const details = parseSalesDetails(detailRows);
+  const { month, days } = monthParts(key);
+  const label = monthLabel(key);
+
+  const categories = ["全体", "iPhone", "iPad", "Android", "PC", "掃除機", "ゲーム機", "Apple Watch", "イヤホン", "その他"];
+  const summary = [
+    [`【${label}】売上管理表`],
+    ["区分", "売上", "原価", "粗利", "件数", "平均単価", "利益率"],
+    ...categories.map((category) => {
+      const predicate = category === "全体" ? () => true : (detail: SalesDetail) => detail.category === category;
+      const sales = sumBy(details, predicate, "sales");
+      const cost = sumBy(details, predicate, "cost");
+      const profit = sumBy(details, predicate, "profit");
+      const count = countBy(details, predicate);
+      return [category, sales, cost, profit, count, count ? Math.round(sales / count) : 0, sales ? profit / sales : 0];
+    }),
+    [],
+    ["決済方法", "売上", "件数"],
+    ...Array.from(new Set(details.map((detail) => detail.paymentMethod || "未定"))).sort().map((payment) => [
+      payment,
+      sumBy(details, (detail) => (detail.paymentMethod || "未定") === payment, "sales"),
+      countBy(details, (detail) => (detail.paymentMethod || "未定") === payment),
+    ]),
+  ];
+  await writeSheetValues(sheets, spreadsheetId, SALES_SUMMARY_SHEET_NAME, summary);
+
+  const previousDailyRows = await readValues(sheets, spreadsheetId, `'${DAILY_SALES_SHEET_NAME}'!A2:M`).catch(() => []);
+  const manualDaily = new Map(previousDailyRows.map((row) => [String(row[0] ?? ""), row]));
+  const daily = [
+    [`【${label}】日別売上報告`],
+    ["日付", "修理件数", "月間累計件数", "売上", "月間累計売上", "原価", "粗利", "利益率", "現金売上", "現金以外売上", "買取問い合わせ数", "買取台数", "来店者数(修理以外)"],
+  ];
+  let runningCount = 0;
+  let runningSales = 0;
+  for (let day = 1; day <= days; day += 1) {
+    const dateText = `${month}/${day}`;
+    const dayDetails = details.filter((detail) => dayNumber(detail.date) === day);
+    const sales = sumBy(dayDetails, () => true, "sales");
+    const cost = sumBy(dayDetails, () => true, "cost");
+    const profit = sumBy(dayDetails, () => true, "profit");
+    const count = dayDetails.length;
+    runningCount += count;
+    runningSales += sales;
+    const previous = manualDaily.get(dateText) ?? [];
+    daily.push([
+      dateText,
+      count,
+      runningCount,
+      sales,
+      runningSales,
+      cost,
+      profit,
+      sales ? profit / sales : 0,
+      sumBy(dayDetails, (detail) => detail.paymentMethod === "現金", "sales"),
+      sumBy(dayDetails, (detail) => detail.paymentMethod !== "現金", "sales"),
+      previous[10] ?? "",
+      previous[11] ?? "",
+      previous[12] ?? "",
+    ]);
+  }
+  await writeSheetValues(sheets, spreadsheetId, DAILY_SALES_SHEET_NAME, daily);
+
+  const previousCashRows = await readValues(sheets, spreadsheetId, `'${CASH_SHEET_NAME}'!A2:I`).catch(() => []);
+  const manualCash = new Map(previousCashRows.map((row) => [String(row[0] ?? ""), row]));
+  const cash = [
+    [`【${label}】金庫現金在高`],
+    ["日付", "朝残高", "現金売上", "現金以外売上", "経費", "理論残高", "実際残高", "過不足", "備考"],
+  ];
+  for (let day = 1; day <= days; day += 1) {
+    const dateText = `${month}/${day}`;
+    const dayDetails = details.filter((detail) => dayNumber(detail.date) === day);
+    const previous = manualCash.get(dateText) ?? [];
+    const morning = moneyNumber(String(previous[1] ?? "50000")) || 50000;
+    const expense = moneyNumber(String(previous[4] ?? ""));
+    const actual = previous[6] ?? "";
+    const cashSales = sumBy(dayDetails, (detail) => detail.paymentMethod === "現金", "sales");
+    const nonCashSales = sumBy(dayDetails, (detail) => detail.paymentMethod !== "現金", "sales");
+    const expected = morning + cashSales - expense;
+    cash.push([dateText, morning, cashSales, nonCashSales, previous[4] ?? "", expected, actual, actual === "" ? "" : expected - moneyNumber(String(actual)), previous[8] ?? ""]);
+  }
+  await writeSheetValues(sheets, spreadsheetId, CASH_SHEET_NAME, cash);
+
+  const previousIncomeRows = await readValues(sheets, spreadsheetId, `'${INCOME_EXPENSE_SHEET_NAME}'!A2:N`).catch(() => []);
+  const manualIncome = new Map(previousIncomeRows.map((row) => [String(row[0] ?? ""), row]));
+  const income = [
+    [`【${label}】収支表`],
+    ["日付", "売上", "損失額", "仕入値/原価", "粗利益", "経費", "人件費", "家賃", "ダイワン契約", "ネット/光熱費", "割る買取", "純利益", "利益率", "備考"],
+  ];
+  for (let day = 1; day <= days; day += 1) {
+    const dateText = `${month}/${day}`;
+    const dayDetails = details.filter((detail) => dayNumber(detail.date) === day);
+    const previous = manualIncome.get(dateText) ?? [];
+    const sales = sumBy(dayDetails, () => true, "sales");
+    const cost = sumBy(dayDetails, () => true, "cost");
+    const profit = sumBy(dayDetails, () => true, "profit");
+    const loss = moneyNumber(String(previous[2] ?? ""));
+    const expenses = [6, 7, 8, 9, 10].map((index) => moneyNumber(String(previous[index] ?? "")));
+    const expenseTotal = expenses.reduce((total, value) => total + value, 0);
+    const netProfit = profit - expenseTotal - loss;
+    income.push([
+      dateText,
+      sales,
+      previous[2] ?? "",
+      cost,
+      profit,
+      expenseTotal,
+      previous[6] ?? "",
+      previous[7] ?? "",
+      previous[8] ?? "",
+      previous[9] ?? "",
+      previous[10] ?? "",
+      netProfit,
+      sales ? netProfit / sales : 0,
+      previous[13] ?? "",
+    ]);
+  }
+  income.push([
+    "合計",
+    `=SUM(B3:B${days + 2})`,
+    `=SUM(C3:C${days + 2})`,
+    `=SUM(D3:D${days + 2})`,
+    `=SUM(E3:E${days + 2})`,
+    `=SUM(F3:F${days + 2})`,
+    `=SUM(G3:G${days + 2})`,
+    `=SUM(H3:H${days + 2})`,
+    `=SUM(I3:I${days + 2})`,
+    `=SUM(J3:J${days + 2})`,
+    `=SUM(K3:K${days + 2})`,
+    `=SUM(L3:L${days + 2})`,
+    `=IFERROR(L${days + 3}/B${days + 3},0)`,
+    "",
+  ]);
+  await writeSheetValues(sheets, spreadsheetId, INCOME_EXPENSE_SHEET_NAME, income);
+}
+
+export async function syncSalesToManagement(reception: Reception) {
+  if (!MAIN_SPREADSHEET_ID) return;
+  const sheets = getSheetsClient();
+  const key = monthKey(customerMgmtTargetDate(reception));
+  const target = await getCustomerMgmtTarget(sheets, reception);
+  await upsertSalesDetails(sheets, target.spreadsheetId, reception);
+  await rebuildSalesSummarySheets(sheets, target.spreadsheetId, key);
+}
+
+export async function removeReceptionFromSalesManagement(
+  reception: Pick<Reception, "receptionId" | "storeName" | "returnDate" | "receptionDate" | "lastUpdated">,
+) {
+  if (!MAIN_SPREADSHEET_ID) return;
+  const sheets = getSheetsClient();
+  const key = monthKey(customerMgmtTargetDate(reception));
+  const target = await getCustomerMgmtTarget(sheets, reception);
+  await removeSalesDetailRows(sheets, target.spreadsheetId, reception.receptionId);
+  await rebuildSalesSummarySheets(sheets, target.spreadsheetId, key);
+}
+
 export async function syncReceptionToCustomerMgmt(reception: Reception) {
   if (!MAIN_SPREADSHEET_ID) return;
   const sheets = getSheetsClient();
@@ -557,7 +908,7 @@ export async function syncPurchaseToManagement(reception: Reception) {
 
 export async function syncReceptionSideEffects(reception: Reception) {
   await Promise.allSettled([
-    syncReceptionToCustomerMgmt(reception),
+    syncReceptionToCustomerMgmt(reception).then(() => syncSalesToManagement(reception)),
     syncPurchaseToManagement(reception),
   ]).then((results) => {
     for (const result of results) {

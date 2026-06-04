@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { isStoreName, storeFromReceptionId } from "@/lib/constants";
 import { apiError } from "@/lib/http";
-import { removeReceptionFromCustomerMgmt, syncReceptionSideEffects } from "@/lib/management-sync";
+import { removeReceptionFromCustomerMgmt, removeReceptionFromSalesManagement, syncReceptionSideEffects } from "@/lib/management-sync";
 import { deleteReception, getReceptionById, updateReception } from "@/lib/sheets";
 
 async function storeFor(request: NextRequest, id: string) {
@@ -46,6 +46,7 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
     if (!store) return apiError(new Error("店舗を特定できません。"), 400);
     const deleted = await deleteReception(store, id);
     await removeReceptionFromCustomerMgmt(deleted);
+    await removeReceptionFromSalesManagement(deleted);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return apiError(error);
