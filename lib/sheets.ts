@@ -11,6 +11,7 @@ import {
   StoreName,
   isStoreName,
 } from "@/lib/constants";
+import { initialStatusForService } from "@/lib/status-options";
 import { CostOption, CostReferenceData, Device, MasterData, ModelCostOptions, Reception } from "@/lib/types";
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
@@ -145,7 +146,7 @@ export async function createReception(storeName: string, initial: Partial<Recept
     storeName,
     receptionDate: now,
     lastUpdated: now,
-    status: initial.status || "受付中",
+    status: initial.status || initialStatusForService(initial.serviceType),
     updateToken: randomBytes(24).toString("hex"),
   };
   const result = await getSheetsClient().spreadsheets.values.append({

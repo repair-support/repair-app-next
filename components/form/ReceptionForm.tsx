@@ -426,7 +426,7 @@ export default function ReceptionForm({ store }: { store: string }) {
           <div className="space-y-3">
             <input className="input" placeholder="番号・名前・機種で検索..." value={search} onChange={(event) => setSearch(event.target.value)} />
             <div className="max-h-64 space-y-2 overflow-y-auto rounded-xl border p-2">
-              {filtered.length === 0 && <p className="p-2 text-sm text-slate-500">受付中の番号はありません。</p>}
+              {filtered.length === 0 && <p className="p-2 text-sm text-slate-500">入力待ちの番号はありません。</p>}
               {filtered.map((item) => (
                 <button className={`w-full rounded-lg border p-3 text-left ${selectedId === item.receptionId ? "border-blue-600 bg-blue-50" : "bg-white"}`} key={item.receptionId} type="button" onClick={() => setSelectedId(item.receptionId)}>
                   <span className="font-bold">{item.receptionId}</span>

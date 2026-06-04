@@ -25,9 +25,23 @@ export function combinedStatusOptions(lists: StatusLists) {
 }
 
 export function initialStatusForService(serviceType: string | undefined | null) {
-  return isPurchaseServiceType(serviceType) ? DEFAULT_STATUS_LISTS.purchase[0] : DEFAULT_STATUS_LISTS.repair[0];
+  return initialStatusFromLists(DEFAULT_STATUS_LISTS, serviceType);
 }
 
 export function completedStatusForService(serviceType: string | undefined | null) {
-  return isPurchaseServiceType(serviceType) ? DEFAULT_STATUS_LISTS.purchase[1] : DEFAULT_STATUS_LISTS.repair[1];
+  return completedStatusFromLists(DEFAULT_STATUS_LISTS, serviceType);
+}
+
+export function initialStatusFromLists(lists: StatusLists, serviceType: string | undefined | null) {
+  const options = isPurchaseServiceType(serviceType) ? lists.purchase : lists.repair;
+  return options[0] ?? "";
+}
+
+export function completedStatusFromLists(lists: StatusLists, serviceType: string | undefined | null) {
+  const options = isPurchaseServiceType(serviceType) ? lists.purchase : lists.repair;
+  return options[1] ?? options[0] ?? "";
+}
+
+export function isInitialStatusForService(lists: StatusLists, serviceType: string | undefined | null, status: string | undefined | null) {
+  return String(status ?? "") === initialStatusFromLists(lists, serviceType);
 }
