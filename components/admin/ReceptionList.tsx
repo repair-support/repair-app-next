@@ -4,36 +4,23 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { statusCardStyle, statusStyle } from "@/lib/status-style";
+import { combinedStatusOptions, DEFAULT_STATUS_LISTS, statusOptionsForService } from "@/lib/status-options";
 import { Reception } from "@/lib/types";
-
-const FALLBACK_STATUSES = [
-  "受付中",
-  "受付済み",
-  "見積中",
-  "連絡待ち",
-  "パーツ発注中",
-  "修理中",
-  "修理完了",
-  "申込書発行済",
-  "来店予定",
-  "返却済み",
-  "キャンセル",
-];
 
 export default function ReceptionList({ initial, store }: { initial: Reception[]; store: string }) {
   const router = useRouter();
   const [items, setItems] = useState(initial);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
-  const [statuses, setStatuses] = useState(FALLBACK_STATUSES);
+  const [statusLists, setStatusLists] = useState(DEFAULT_STATUS_LISTS);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [staffName, setStaffName] = useState("");
 
   useEffect(() => {
-    fetch("/api/status")
+    fetch("/api/status?mode=lists")
       .then((response) => response.json())
       .then((body) => {
-        if (body.ok && Array.isArray(body.data) && body.data.length > 0) setStatuses(body.data);
+        if (body.ok && body.data?.repair?.length && body.data?.purchase?.length) setStatusLists(body.data);
       })
       .catch(() => undefined);
     fetch(`/api/staff?store=${encodeURIComponent(store)}`)
@@ -54,6 +41,8 @@ export default function ReceptionList({ initial, store }: { initial: Reception[]
       return (!status || item.status === status) && text.includes(keyword);
     });
   }, [items, q, status]);
+
+  const statuses = useMemo(() => combinedStatusOptions(statusLists), [statusLists]);
 
   async function changeStatus(item: Reception, next: string) {
     const response = await fetch(`/api/reception/${encodeURIComponent(item.receptionId)}`, {
@@ -113,7 +102,7 @@ export default function ReceptionList({ initial, store }: { initial: Reception[]
                 </span>
               </div>
               <select className="rounded-lg border px-2 py-1 text-sm font-bold" style={statusStyle(item.status)} value={item.status} onChange={(event) => changeStatus(item, event.target.value)}>
-                {statuses.map((value) => (
+                {statusOptionsForService(statusLists, item.serviceType, item.status).map((value) => (
                   <option key={value} value={value}>
                     {value}
                   </option>

@@ -3,21 +3,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { statusStyle } from "@/lib/status-style";
+import { DEFAULT_STATUS_LISTS, statusOptionsForService } from "@/lib/status-options";
 import { CostOption, CostReferenceData, Reception } from "@/lib/types";
-
-const FALLBACK_STATUSES = [
-  "受付中",
-  "受付済み",
-  "見積中",
-  "連絡待ち",
-  "パーツ発注中",
-  "修理中",
-  "修理完了",
-  "申込書発行済",
-  "来店予定",
-  "返却済み",
-  "キャンセル",
-];
 
 const editable: [keyof Reception, string][] = [
   ["staffName", "受付担当"],
@@ -73,16 +60,16 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
   const router = useRouter();
   const [form, setForm] = useState(initial);
   const [costReference, setCostReference] = useState<CostReferenceData | null>(null);
-  const [statuses, setStatuses] = useState(FALLBACK_STATUSES);
+  const [statusLists, setStatusLists] = useState(DEFAULT_STATUS_LISTS);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const canPrint = form.status === "申込書発行済" || form.status === "返却済み" || form.serviceType.includes("買取");
 
   useEffect(() => {
-    fetch("/api/status")
+    fetch("/api/status?mode=lists")
       .then((response) => response.json())
       .then((body) => {
-        if (body.ok && Array.isArray(body.data) && body.data.length > 0) setStatuses(body.data);
+        if (body.ok && body.data?.repair?.length && body.data?.purchase?.length) setStatusLists(body.data);
       })
       .catch(() => undefined);
     fetch("/api/cost-reference")
@@ -105,6 +92,8 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
     if (!costs) return [];
     return [...costs.screen, ...costs.battery, ...costs.small, ...costs.glass, ...costs.other];
   }, [costReference, form.deviceModel]);
+
+  const statuses = useMemo(() => statusOptionsForService(statusLists, form.serviceType, form.status), [form.serviceType, form.status, statusLists]);
 
   const suggestedCost = useMemo(() => {
     if (!costReference || !form.deviceModel) return null;

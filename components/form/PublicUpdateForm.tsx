@@ -2,23 +2,10 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { statusStyle } from "@/lib/status-style";
+import { DEFAULT_STATUS_LISTS, statusOptionsForService } from "@/lib/status-options";
 import type { CostOption, CostReferenceData, MasterData, Reception } from "@/lib/types";
 
 type PublicReception = Partial<Reception> & { receptionId: string };
-
-const FALLBACK_STATUSES = [
-  "受付中",
-  "受付済み",
-  "見積中",
-  "連絡待ち",
-  "パーツ発注中",
-  "修理中",
-  "修理完了",
-  "申込書発行済",
-  "来店予定",
-  "返却済み",
-  "キャンセル",
-];
 
 const SERVICE_BRANDS = [
   "ダイワンテレコム",
@@ -219,7 +206,7 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
   const [form, setForm] = useState<Record<string, string>>({});
   const [master, setMaster] = useState<MasterData | null>(null);
   const [costReference, setCostReference] = useState<CostReferenceData | null>(null);
-  const [statuses, setStatuses] = useState<string[]>(FALLBACK_STATUSES);
+  const [statusLists, setStatusLists] = useState(DEFAULT_STATUS_LISTS);
   const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [message, setMessage] = useState("読み込み中...");
   const [saving, setSaving] = useState(false);
@@ -233,7 +220,7 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
       const [receptionResponse, masterResponse, statusResponse, costResponse] = await Promise.all([
         fetch(endpoint),
         fetch("/api/master"),
-        fetch("/api/status"),
+        fetch("/api/status?mode=lists"),
         fetch("/api/cost-reference"),
       ]);
 
@@ -261,8 +248,8 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
       if (masterBody?.ok) setMaster(masterBody.data);
 
       const statusBody = await statusResponse.json().catch(() => null);
-      if (statusBody?.ok && Array.isArray(statusBody.data) && statusBody.data.length > 0) {
-        setStatuses(statusBody.data);
+      if (statusBody?.ok && statusBody.data?.repair?.length && statusBody.data?.purchase?.length) {
+        setStatusLists(statusBody.data);
       }
 
       const costBody = await costResponse.json().catch(() => null);
@@ -290,6 +277,7 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
     return [];
   }, [form.deviceCategory, form.deviceModel, master]);
   const isPurchase = (form.serviceType ?? "").includes("買取");
+  const statuses = useMemo(() => statusOptionsForService(statusLists, form.serviceType, form.status), [form.serviceType, form.status, statusLists]);
 
   const costOptions = useMemo(() => {
     if (!costReference || !form.deviceModel) return [];

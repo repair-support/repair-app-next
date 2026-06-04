@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isStoreName } from "@/lib/constants";
 import { apiError } from "@/lib/http";
 import { createReception } from "@/lib/sheets";
+import { initialStatusForService } from "@/lib/status-options";
 
 export async function POST(request: NextRequest) {
   try {
@@ -11,7 +12,7 @@ export async function POST(request: NextRequest) {
     const result = await createReception(body.storeName, {
       staffName: body.staffName ?? "",
       serviceType: body.serviceType,
-      status: "受付中",
+      status: initialStatusForService(body.serviceType),
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
