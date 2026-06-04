@@ -74,3 +74,22 @@ export interface MasterData {
   repairMap: Record<string, string[]>;
   modelRepairMap: Record<string, string[]>;
 }
+
+export interface CostOption {
+  type: string;
+  label: string;
+  cost: number;
+}
+
+export interface ModelCostOptions {
+  screen: CostOption[];
+  battery: CostOption[];
+  small: CostOption[];
+  glass: CostOption[];
+  other: CostOption[];
+}
+
+export interface CostReferenceData {
+  modelCosts: Record<string, ModelCostOptions>;
+  smallParts: Record<string, CostOption[]>;
+}

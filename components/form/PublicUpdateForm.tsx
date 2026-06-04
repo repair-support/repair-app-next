@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { MasterData, Reception } from "@/lib/types";
+import type { CostOption, CostReferenceData, MasterData, Reception } from "@/lib/types";
 
 type PublicReception = Partial<Reception> & { receptionId: string };
 
@@ -189,6 +189,7 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
   const [reception, setReception] = useState<PublicReception | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [master, setMaster] = useState<MasterData | null>(null);
+  const [costReference, setCostReference] = useState<CostReferenceData | null>(null);
   const [statuses, setStatuses] = useState<string[]>(FALLBACK_STATUSES);
   const [message, setMessage] = useState("読み込み中...");
   const [saving, setSaving] = useState(false);
@@ -199,10 +200,11 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
     let active = true;
 
     async function load() {
-      const [receptionResponse, masterResponse, statusResponse] = await Promise.all([
+      const [receptionResponse, masterResponse, statusResponse, costResponse] = await Promise.all([
         fetch(endpoint),
         fetch("/api/master"),
         fetch("/api/status"),
+        fetch("/api/cost-reference"),
       ]);
 
       const receptionBody = await receptionResponse.json();
@@ -223,6 +225,9 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
       if (statusBody?.ok && Array.isArray(statusBody.data) && statusBody.data.length > 0) {
         setStatuses(statusBody.data);
       }
+
+      const costBody = await costResponse.json().catch(() => null);
+      if (costBody?.ok) setCostReference(costBody.data);
     }
 
     load().catch((error) => {
@@ -246,6 +251,37 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
     return [];
   }, [form.deviceCategory, form.deviceModel, master]);
   const isPurchase = (form.serviceType ?? "").includes("買取");
+
+  const costOptions = useMemo(() => {
+    if (!costReference || !form.deviceModel) return [];
+    const costs = costReference.modelCosts[form.deviceModel];
+    if (!costs) return [];
+    return [...costs.screen, ...costs.battery, ...costs.small, ...costs.glass, ...costs.other];
+  }, [costReference, form.deviceModel]);
+
+  const suggestedCost = useMemo(() => {
+    if (!costReference || !form.deviceModel) return null;
+    const costs = costReference.modelCosts[form.deviceModel];
+    if (!costs) return null;
+    const repairText = `${form.repairContent ?? ""} ${form.panelType ?? ""} ${form.smallPartsType ?? ""}`;
+    const all = [...costs.screen, ...costs.battery, ...costs.small, ...costs.glass, ...costs.other];
+    const exact = all.find((option) => repairText.includes(option.label) || repairText.includes(option.type));
+    if (exact) return exact;
+    if (/画面|液晶|パネル|有機EL|OLED/i.test(repairText)) return costs.screen[0] ?? null;
+    if (/バッテリー|電池|BT/i.test(repairText)) return costs.battery[0] ?? null;
+    if (/強化ガラス|保護ガラス|ガラスコーティング|コーティング/i.test(repairText)) return costs.glass[0] ?? null;
+    if (/スモール|パーツ|カメラ|スピーカー|コネクタ|ボタン|ドック/i.test(repairText)) return costs.small[0] ?? null;
+    return null;
+  }, [costReference, form.deviceModel, form.panelType, form.repairContent, form.smallPartsType]);
+
+  useEffect(() => {
+    if (isPurchase || !suggestedCost) return;
+    setForm((current) => {
+      if (current.cost === String(suggestedCost.cost)) return current;
+      if (current.cost && current.cost !== "0") return current;
+      return { ...current, cost: String(suggestedCost.cost) };
+    });
+  }, [isPurchase, suggestedCost]);
 
   function updateField(name: string, value: string) {
     setForm((current) => {
@@ -327,6 +363,23 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
           <TextField label="修理料金" name="repairPrice" value={form.repairPrice ?? ""} inputMode="decimal" onChange={updateField} />
           <TextField label="原価" name="cost" value={form.cost ?? ""} inputMode="decimal" onChange={updateField} />
         </div>
+        {!isPurchase && costOptions.length > 0 && (
+          <div className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+            <p className="font-bold">原価候補</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {costOptions.slice(0, 10).map((option: CostOption) => (
+                <button
+                  className="rounded-full border bg-white px-3 py-1"
+                  key={`${option.type}-${option.label}-${option.cost}`}
+                  type="button"
+                  onClick={() => updateField("cost", String(option.cost))}
+                >
+                  {option.label}: {option.cost.toLocaleString()}円
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <TextAreaField label="症状" name="symptom" value={form.symptom ?? ""} onChange={updateField} />
         <ComboField label="修理内容" name="repairContent" value={form.repairContent ?? ""} options={repairOptions} placeholder="候補から選択、または手入力" onChange={updateField} />
         <TextAreaField label="店舗内メモ" name="internalMemo" value={form.internalMemo ?? ""} onChange={updateField} />

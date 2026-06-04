@@ -9,9 +9,10 @@ import {
   StoreName,
   isStoreName,
 } from "@/lib/constants";
-import { MasterData, Reception } from "@/lib/types";
+import { CostOption, CostReferenceData, MasterData, ModelCostOptions, Reception } from "@/lib/types";
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
+const COST_SPREADSHEET_ID = process.env.COST_SPREADSHEET_ID || "19C4DBrD5WbLx77572NmtV4-AxNoRYS3vxAUz-S3e0Pc";
 
 const fields: (keyof Omit<Reception, "rowNumber">)[] = [
   "receptionId", "receptionDate", "staffName", "repairStaff", "status", "deviceCategory",
@@ -157,6 +158,75 @@ export async function getMasterData(): Promise<MasterData> {
     if (category && repair) (result.repairMap[category] ??= []).push(repair);
     if (model && modelRepair) (result.modelRepairMap[model] ??= []).push(modelRepair);
   }
+  return result;
+}
+
+function numericCost(value: unknown) {
+  if (typeof value === "number") return Math.round(value);
+  return Number(String(value ?? "").replace(/[^\d.-]/g, "")) || 0;
+}
+
+function normalizeHeader(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function classifyCostOption(text: string) {
+  if (/画面|液晶|パネル|有機EL|OLED/i.test(text)) return "screen";
+  if (/バッテリー|電池|BT/i.test(text)) return "battery";
+  if (/強化ガラス|保護ガラス|ガラスコーティング|コーティング/i.test(text)) return "glass";
+  if (/スモール|パーツ|カメラ|スピーカー|コネクタ|ボタン|ドック|近接|センサー/i.test(text)) return "small";
+  return "other";
+}
+
+function emptyModelCosts(): ModelCostOptions {
+  return { screen: [], battery: [], small: [], glass: [], other: [] };
+}
+
+function pushUniqueOption(target: ModelCostOptions, bucket: keyof ModelCostOptions, option: CostOption) {
+  if (!option.cost || !option.label) return;
+  if (!target[bucket].some((current) => current.label === option.label && current.cost === option.cost)) {
+    target[bucket].push(option);
+  }
+}
+
+export async function getCostReferenceData(): Promise<CostReferenceData> {
+  const result: CostReferenceData = { modelCosts: {}, smallParts: {} };
+  if (!COST_SPREADSHEET_ID) return result;
+
+  const sheets = getSheetsClient();
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId: COST_SPREADSHEET_ID });
+  const titles = metadata.data.sheets?.map((sheet) => sheet.properties?.title).filter(Boolean) as string[] | undefined;
+  for (const title of titles ?? []) {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: COST_SPREADSHEET_ID,
+      range: `'${title}'!A1:Z`,
+    });
+    const values = response.data.values ?? [];
+    if (values.length < 2) continue;
+
+    const headers = values[0].map(normalizeHeader);
+    const modelCol = headers.findIndex((header) => /機種|モデル|model/i.test(header));
+    const repairCol = headers.findIndex((header) => /修理内容|内容|部品名|パーツ名|商品名|品名|repair|part/i.test(header));
+    const categoryCol = headers.findIndex((header) => /カテゴリ|分類|種別|区分|category|type/i.test(header));
+    const costCol = headers.findIndex((header) => /原価|仕入|価格|金額|cost|price/i.test(header));
+    if (modelCol < 0 || costCol < 0) continue;
+
+    for (const row of values.slice(1)) {
+      const model = String(row[modelCol] ?? "").trim();
+      if (!model) continue;
+      const label = String(row[repairCol >= 0 ? repairCol : categoryCol] ?? row[categoryCol >= 0 ? categoryCol : repairCol] ?? "").trim();
+      const type = String(row[categoryCol >= 0 ? categoryCol : repairCol] ?? label).trim();
+      const cost = numericCost(row[costCol]);
+      const bucket = classifyCostOption(`${type} ${label}`) as keyof ReturnType<typeof emptyModelCosts>;
+      const modelCosts = result.modelCosts[model] ??= emptyModelCosts();
+      pushUniqueOption(modelCosts, bucket, { type, label: label || type, cost });
+      if (bucket === "small" && type) {
+        const list = result.smallParts[type] ??= [];
+        if (!list.some((current) => current.label === label && current.cost === cost)) list.push({ type, label: label || type, cost });
+      }
+    }
+  }
+
   return result;
 }
 
