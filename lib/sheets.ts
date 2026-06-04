@@ -116,6 +116,7 @@ export async function updateReception(storeName: string, receptionId: string, da
     valueInputOption: "RAW",
     requestBody: { values: [toRow(updated)] },
   });
+  return updated;
 }
 
 export async function deleteReception(storeName: string, receptionId: string) {
@@ -132,6 +133,7 @@ export async function deleteReception(storeName: string, receptionId: string) {
       startIndex: current.rowNumber - 1, endIndex: current.rowNumber,
     } } }] },
   });
+  return current;
 }
 
 export async function getStatuses(): Promise<string[]> {

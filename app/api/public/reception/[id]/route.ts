@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { storeFromReceptionId } from "@/lib/constants";
 import { apiError } from "@/lib/http";
+import { syncReceptionSideEffects } from "@/lib/management-sync";
 import { getReceptionById, updateReception } from "@/lib/sheets";
 
 const editableFields = [
@@ -66,7 +67,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!result) return apiError(new Error("URLが無効です"), 403);
     const body = await request.json();
     const changes = Object.fromEntries(editableFields.filter((field) => field in body).map((field) => [field, body[field]]));
-    await updateReception(result.store, id, changes);
+    const updated = await updateReception(result.store, id, changes);
+    await syncReceptionSideEffects(updated);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return apiError(error);

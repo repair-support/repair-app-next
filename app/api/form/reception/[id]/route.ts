@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { storeFromReceptionId } from "@/lib/constants";
 import { apiError } from "@/lib/http";
+import { syncReceptionSideEffects } from "@/lib/management-sync";
 import { getReceptionById, updateReception } from "@/lib/sheets";
 
 const customerFields = [
@@ -64,7 +65,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (!current || (!canFillExisting && !hasValidToken)) return apiError(new Error("受付番号が無効です。"), 403);
 
     const changes = Object.fromEntries(customerFields.map((field) => [field, body[field] ?? ""]));
-    await updateReception(store, id, { ...changes, status: "受付済み" });
+    const updated = await updateReception(store, id, { ...changes, status: "受付済み" });
+    await syncReceptionSideEffects(updated);
     return NextResponse.json({ ok: true, receptionId: id, updateToken: current.updateToken });
   } catch (error) {
     return apiError(error);
