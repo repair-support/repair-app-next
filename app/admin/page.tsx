@@ -13,6 +13,9 @@ export default function AdminHome() {
       <MasterDataPanel />
       <StatusSettingsPanel />
       <CustomerManagementLinks />
+      <Link className="card mb-6 font-bold text-blue-700 hover:border-blue-500" href="/admin/qr">
+        店舗別QRコード一覧を印刷
+      </Link>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {STORE_NAMES.map((store) => (
           <Link className="card font-bold hover:border-blue-500" href={`/admin/${encodeURIComponent(store)}`} key={store}>
