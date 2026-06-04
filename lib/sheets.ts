@@ -334,6 +334,68 @@ export async function getMasterData(): Promise<MasterData> {
   return result;
 }
 
+async function setupMasterDataSheet(sheets: sheets_v4.Sheets) {
+  await ensureSheet(sheets, requireSpreadsheetId(), "マスターデータ");
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: requireSpreadsheetId(),
+    range: "マスターデータ!A1:D1",
+  }).catch(() => ({ data: { values: [] as unknown[][] } }));
+  if ((response.data.values?.[0] ?? []).join("") !== "") return;
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: requireSpreadsheetId(),
+    range: "マスターデータ!A1:D1",
+    valueInputOption: "RAW",
+    requestBody: { values: [["端末カテゴリ", "機種名", "修理内容", "機種別修理内容"]] },
+  });
+}
+
+export async function addMasterModel(category: string, model: string) {
+  const nextCategory = category.trim();
+  const nextModel = model.trim();
+  if (!nextCategory || !nextModel) throw new Error("カテゴリと機種名を入力してください");
+  const sheets = getSheetsClient();
+  await setupMasterDataSheet(sheets);
+  const rows = await sheets.spreadsheets.values.get({
+    spreadsheetId: requireSpreadsheetId(),
+    range: "マスターデータ!A2:D",
+  }).then((response) => response.data.values ?? []);
+  const exists = rows.some((row) => String(row[0] ?? "") === nextCategory && String(row[1] ?? "") === nextModel);
+  if (!exists) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: requireSpreadsheetId(),
+      range: "マスターデータ!A:D",
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [[nextCategory, nextModel, "", ""]] },
+    });
+  }
+  return getMasterData();
+}
+
+export async function addMasterRepair(model: string, repair: string) {
+  const nextModel = model.trim();
+  const nextRepair = repair.trim();
+  if (!nextModel || !nextRepair) throw new Error("機種名と修理内容を入力してください");
+  const sheets = getSheetsClient();
+  await setupMasterDataSheet(sheets);
+  const rows = await sheets.spreadsheets.values.get({
+    spreadsheetId: requireSpreadsheetId(),
+    range: "マスターデータ!A2:D",
+  }).then((response) => response.data.values ?? []);
+  const category = String(rows.find((row) => String(row[1] ?? "") === nextModel)?.[0] ?? "");
+  const exists = rows.some((row) => String(row[1] ?? "") === nextModel && String(row[3] ?? "") === nextRepair);
+  if (!exists) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: requireSpreadsheetId(),
+      range: "マスターデータ!A:D",
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [[category, nextModel, "", nextRepair]] },
+    });
+  }
+  return getMasterData();
+}
+
 function numericCost(value: unknown) {
   if (typeof value === "number") return Math.round(value);
   return Number(String(value ?? "").replace(/[^\d.-]/g, "")) || 0;
