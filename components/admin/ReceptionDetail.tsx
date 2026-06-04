@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Reception } from "@/lib/types";
+import { CostOption, CostReferenceData, Reception } from "@/lib/types";
 
 const FALLBACK_STATUSES = [
   "受付中",
@@ -69,8 +69,10 @@ const editable: [keyof Reception, string][] = [
 export default function ReceptionDetail({ initial }: { initial: Reception }) {
   const router = useRouter();
   const [form, setForm] = useState(initial);
+  const [costReference, setCostReference] = useState<CostReferenceData | null>(null);
   const [statuses, setStatuses] = useState(FALLBACK_STATUSES);
   const [message, setMessage] = useState("");
+  const canPrint = form.status === "申込書発行済" || form.status === "返却済み" || form.serviceType.includes("買取");
 
   useEffect(() => {
     fetch("/api/status")
@@ -79,7 +81,35 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
         if (body.ok && Array.isArray(body.data) && body.data.length > 0) setStatuses(body.data);
       })
       .catch(() => undefined);
+    fetch("/api/cost-reference")
+      .then((response) => response.json())
+      .then((body) => {
+        if (body.ok) setCostReference(body.data);
+      })
+      .catch(() => undefined);
   }, []);
+
+  const costOptions = useMemo(() => {
+    if (!costReference || !form.deviceModel) return [];
+    const costs = costReference.modelCosts[form.deviceModel];
+    if (!costs) return [];
+    return [...costs.screen, ...costs.battery, ...costs.small, ...costs.glass, ...costs.other];
+  }, [costReference, form.deviceModel]);
+
+  const suggestedCost = useMemo(() => {
+    if (!costReference || !form.deviceModel) return null;
+    const costs = costReference.modelCosts[form.deviceModel];
+    if (!costs) return null;
+    const repairText = `${form.repairContent ?? ""} ${form.panelType ?? ""} ${form.smallPartsType ?? ""}`;
+    const all = [...costs.screen, ...costs.battery, ...costs.small, ...costs.glass, ...costs.other];
+    const exact = all.find((option) => repairText.includes(option.label) || repairText.includes(option.type));
+    if (exact) return exact;
+    if (/画面|液晶|パネル|有機EL|OLED/i.test(repairText)) return costs.screen[0] ?? null;
+    if (/バッテリー|電池|BT/i.test(repairText)) return costs.battery[0] ?? null;
+    if (/強化ガラス|保護ガラス|ガラスコーティング|コーティング/i.test(repairText)) return costs.glass[0] ?? null;
+    if (/スモール|パーツ|カメラ|スピーカー|コネクタ|ボタン|ドック/i.test(repairText)) return costs.small[0] ?? null;
+    return null;
+  }, [costReference, form.deviceModel, form.panelType, form.repairContent, form.smallPartsType]);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -123,15 +153,48 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
             </label>
           );
         })}
+        {costOptions.length > 0 && (
+          <section className="sm:col-span-2 rounded-xl bg-slate-50 p-4 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="font-bold">原価候補</p>
+                {suggestedCost && <p className="mt-1 text-xs text-slate-600">推定: {suggestedCost.label} / {suggestedCost.cost.toLocaleString()}円</p>}
+              </div>
+              {suggestedCost && (
+                <button className="button-secondary" type="button" onClick={() => setForm({ ...form, cost: String(suggestedCost.cost) })}>
+                  推定原価を反映
+                </button>
+              )}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {costOptions.slice(0, 16).map((option: CostOption) => (
+                <button
+                  className="rounded-full border bg-white px-3 py-1 text-xs font-bold"
+                  key={`${option.type}-${option.label}-${option.cost}`}
+                  type="button"
+                  onClick={() => setForm({ ...form, cost: String(option.cost) })}
+                >
+                  {option.label}: {option.cost.toLocaleString()}円
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
       </div>
       {message && <p className="font-bold text-green-700">{message}</p>}
       <div className="flex flex-wrap gap-3">
         <button className="button" type="submit">
           変更を保存
         </button>
-        <a className="button-secondary" href={`/admin/${encodeURIComponent(form.storeName)}/${encodeURIComponent(form.receptionId)}/print`} target="_blank">
-          申込書を印刷
-        </a>
+        {canPrint ? (
+          <a className="button-secondary" href={`/admin/${encodeURIComponent(form.storeName)}/${encodeURIComponent(form.receptionId)}/print`} target="_blank">
+            申込書を印刷
+          </a>
+        ) : (
+          <button className="button-secondary" type="button" onClick={() => setMessage("申込書はステータスが「申込書発行済」または「返却済み」の場合に印刷できます。")}>
+            申込書を印刷
+          </button>
+        )}
         <button className="rounded-lg border border-red-300 bg-white px-4 py-3 font-bold text-red-700" type="button" onClick={remove}>
           削除
         </button>
