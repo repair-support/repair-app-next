@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { statusStyle } from "@/lib/status-style";
 import { DEFAULT_STATUS_LISTS, returnedStatusFromLists, statusOptionsForService } from "@/lib/status-options";
-import { CostOption, CostReferenceData, Reception } from "@/lib/types";
+import { CostOption, CostReferenceData, Device, Reception } from "@/lib/types";
 
 const editable: [keyof Reception, string][] = [
   ["staffName", "受付担当"],
@@ -53,12 +53,42 @@ const editable: [keyof Reception, string][] = [
   ["returnDate", "返却日"],
   ["internalMemo", "店舗内メモ"],
   ["notes", "追記事項"],
-  ["devicesJson", "端末データJSON"],
 ];
+
+const EMPTY_DEVICE: Device = {
+  category: "",
+  model: "",
+  imei: "",
+  symptom: "",
+  repairContent: "",
+  repairPrice: "",
+  cost: "",
+};
+
+function devicesFromReception(reception: Reception): Device[] {
+  try {
+    const parsed = JSON.parse(reception.devicesJson || "[]");
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed.map((device) => ({ ...EMPTY_DEVICE, ...device }));
+    }
+  } catch {
+    // Fall back to the main reception fields below.
+  }
+  return [{
+    category: reception.deviceCategory,
+    model: reception.deviceModel,
+    imei: reception.imei,
+    symptom: reception.symptom,
+    repairContent: reception.repairContent,
+    repairPrice: reception.repairPrice,
+    cost: reception.cost,
+  }];
+}
 
 export default function ReceptionDetail({ initial }: { initial: Reception }) {
   const router = useRouter();
   const [form, setForm] = useState(initial);
+  const [devices, setDevices] = useState<Device[]>(() => devicesFromReception(initial));
   const [returnDate, setReturnDate] = useState(toDatetimeLocal(initial.returnDate) || toDatetimeLocal(new Date().toISOString()));
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [costReference, setCostReference] = useState<CostReferenceData | null>(null);
@@ -97,6 +127,7 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
   }, [costReference, form.deviceModel]);
 
   const statuses = useMemo(() => statusOptionsForService(statusLists, form.serviceType, form.status), [form.serviceType, form.status, statusLists]);
+  const isPurchase = form.serviceType.includes("買取");
 
   const suggestedCost = useMemo(() => {
     if (!costReference || !form.deviceModel) return null;
@@ -115,11 +146,13 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
 
   async function save(event: FormEvent) {
     event.preventDefault();
+    const normalized = normalizeReceptionDevices(form, devices);
     const response = await fetch(`/api/reception/${encodeURIComponent(form.receptionId)}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
+      body: JSON.stringify(normalized),
     });
+    if (response.ok) setForm(normalized);
     setMessage(response.ok ? "保存しました。" : "保存できませんでした。");
   }
 
@@ -134,7 +167,7 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
     setMessage("");
     try {
       const next = {
-        ...form,
+        ...normalizeReceptionDevices(form, devices),
         status: returnedStatusFromLists(statusLists, form.serviceType),
         returnDate: returnDate ? new Date(returnDate).toISOString() : new Date().toISOString(),
       };
@@ -195,6 +228,32 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
             </label>
           );
         })}
+        <section className="sm:col-span-2 rounded-xl border bg-slate-50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">端末情報</h2>
+              <p className="text-sm text-slate-600">複数台の端末情報をここで編集します。保存時にメイン項目と端末データJSONへ反映します。</p>
+            </div>
+            <button className="button-secondary" type="button" onClick={() => setDevices((current) => [...current, { ...EMPTY_DEVICE }])}>
+              端末を追加
+            </button>
+          </div>
+          <div className="mt-4 space-y-4">
+            {devices.map((device, index) => (
+              <DeviceEditor
+                device={device}
+                index={index}
+                isPurchase={isPurchase}
+                key={index}
+                canRemove={devices.length > 1}
+                onChange={(field, value) => setDevices((current) => current.map((item, itemIndex) => (
+                  itemIndex === index ? { ...item, [field]: value } : item
+                )))}
+                onRemove={() => setDevices((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+              />
+            ))}
+          </div>
+        </section>
         {costOptions.length > 0 && (
           <section className="sm:col-span-2 rounded-xl bg-slate-50 p-4 text-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -273,6 +332,78 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
         </div>
       )}
     </form>
+  );
+}
+
+function normalizeReceptionDevices(reception: Reception, devices: Device[]): Reception {
+  const normalizedDevices = devices.length > 0 ? devices : devicesFromReception(reception);
+  const primary = normalizedDevices[0] ?? EMPTY_DEVICE;
+  return {
+    ...reception,
+    deviceCategory: primary.category,
+    deviceModel: primary.model,
+    imei: primary.imei,
+    symptom: primary.symptom,
+    repairContent: primary.repairContent,
+    repairPrice: primary.repairPrice,
+    cost: primary.cost,
+    devicesJson: JSON.stringify(normalizedDevices),
+    itemCount: reception.itemCount || String(normalizedDevices.length),
+  };
+}
+
+function DeviceEditor({
+  device,
+  index,
+  isPurchase,
+  canRemove,
+  onChange,
+  onRemove,
+}: {
+  device: Device;
+  index: number;
+  isPurchase: boolean;
+  canRemove: boolean;
+  onChange: (field: keyof Device, value: string) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded-xl border bg-white p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="font-bold">端末 {index + 1}</h3>
+        {canRemove && (
+          <button className="text-sm font-bold text-red-700" type="button" onClick={onRemove}>
+            削除
+          </button>
+        )}
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <DeviceInput label="端末カテゴリ" value={device.category} onChange={(value) => onChange("category", value)} />
+        <DeviceInput label="機種名" value={device.model} onChange={(value) => onChange("model", value)} />
+        <DeviceInput label="IMEI / シリアル" value={device.imei} onChange={(value) => onChange("imei", value)} />
+        <DeviceInput label={isPurchase ? "査定金額" : "修理料金"} value={device.repairPrice} onChange={(value) => onChange("repairPrice", value)} />
+        {!isPurchase && <DeviceInput label="原価" value={device.cost} onChange={(value) => onChange("cost", value)} />}
+      </div>
+      <label className="mt-3 block">
+        <span className="label">{isPurchase ? "端末状態・査定メモ" : "症状"}</span>
+        <textarea className="input min-h-20" value={device.symptom} onChange={(event) => onChange("symptom", event.target.value)} />
+      </label>
+      {!isPurchase && (
+        <label className="mt-3 block">
+          <span className="label">修理内容</span>
+          <textarea className="input min-h-20" value={device.repairContent} onChange={(event) => onChange("repairContent", event.target.value)} />
+        </label>
+      )}
+    </div>
+  );
+}
+
+function DeviceInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label>
+      <span className="label">{label}</span>
+      <input className="input" value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
   );
 }
 
