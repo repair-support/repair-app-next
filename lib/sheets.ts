@@ -15,6 +15,7 @@ import { CostOption, CostReferenceData, Device, MasterData, ModelCostOptions, Re
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const COST_SPREADSHEET_ID = process.env.COST_SPREADSHEET_ID || "19C4DBrD5WbLx77572NmtV4-AxNoRYS3vxAUz-S3e0Pc";
+const STATUS_SHEET_NAME = "ステータス";
 const STAFF_SETTINGS_SHEET_NAME = "スタッフ設定";
 
 const fields: (keyof Omit<Reception, "rowNumber">)[] = [
@@ -262,12 +263,52 @@ export async function deleteReception(storeName: string, receptionId: string) {
   return current;
 }
 
-export async function getStatuses(): Promise<string[]> {
+function uniqueNonEmpty(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+export async function getStatusLists(): Promise<{ repair: string[]; purchase: string[] }> {
   const response = await getSheetsClient().spreadsheets.values.get({
     spreadsheetId: requireSpreadsheetId(),
-    range: "ステータス!A2:B",
+    range: `'${STATUS_SHEET_NAME}'!A2:B`,
   });
-  return Array.from(new Set((response.data.values ?? []).flatMap((row) => [row[0], row[1]]).filter(Boolean)));
+  const rows = response.data.values ?? [];
+  const repair = uniqueNonEmpty(rows.map((row) => String(row[0] ?? "")));
+  const purchase = uniqueNonEmpty(rows.map((row) => String(row[1] ?? "")));
+  return {
+    repair: repair.length > 0 ? repair : [...DEFAULT_STATUSES],
+    purchase: purchase.length > 0 ? purchase : [...DEFAULT_PURCHASE_STATUSES],
+  };
+}
+
+export async function getStatuses(): Promise<string[]> {
+  const lists = await getStatusLists();
+  return Array.from(new Set([...lists.repair, ...lists.purchase]));
+}
+
+export async function updateStatusLists(repairStatuses: string[], purchaseStatuses: string[]) {
+  const repair = uniqueNonEmpty(repairStatuses);
+  const purchase = uniqueNonEmpty(purchaseStatuses);
+  if (repair.length === 0) throw new Error("修理ステータスを1件以上入力してください");
+  if (purchase.length === 0) throw new Error("買取ステータスを1件以上入力してください");
+
+  const sheets = getSheetsClient();
+  await ensureSheet(sheets, requireSpreadsheetId(), STATUS_SHEET_NAME);
+  const values = [
+    ["修理ステータス", "買取ステータス"],
+    ...Array.from({ length: Math.max(repair.length, purchase.length) }, (_, index) => [
+      repair[index] ?? "",
+      purchase[index] ?? "",
+    ]),
+  ];
+  await sheets.spreadsheets.values.clear({ spreadsheetId: requireSpreadsheetId(), range: `'${STATUS_SHEET_NAME}'` });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: requireSpreadsheetId(),
+    range: `'${STATUS_SHEET_NAME}'!A1:B${values.length}`,
+    valueInputOption: "RAW",
+    requestBody: { values },
+  });
+  return { repair, purchase };
 }
 
 export async function getStaffOptions(storeName: string): Promise<string[]> {
@@ -470,7 +511,7 @@ export async function setupSpreadsheet() {
   const spreadsheetId = requireSpreadsheetId();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId });
   const existing = new Set(metadata.data.sheets?.map((sheet) => sheet.properties?.title));
-  const titles = ["設定", ...STORE_NAMES, "マスターデータ", "ステータス", STAFF_SETTINGS_SHEET_NAME];
+  const titles = ["設定", ...STORE_NAMES, "マスターデータ", STATUS_SHEET_NAME, STAFF_SETTINGS_SHEET_NAME];
   const missing = titles.filter((title) => !existing.has(title));
   if (missing.length) {
     await sheets.spreadsheets.batchUpdate({
@@ -483,7 +524,7 @@ export async function setupSpreadsheet() {
     ...STORE_NAMES.map((store) => ({ range: `'${store}'!A1:BD1`, values: [[...RECEPTION_HEADERS]] })),
     { range: "マスターデータ!A1:D1", values: [["端末カテゴリ", "機種名", "修理内容", "機種別修理内容"]] },
     {
-      range: "ステータス!A1:B12",
+      range: `'${STATUS_SHEET_NAME}'!A1:B12`,
       values: [
         ["修理ステータス", "買取ステータス"],
         ...Array.from({ length: Math.max(DEFAULT_STATUSES.length, DEFAULT_PURCHASE_STATUSES.length) }, (_, index) => [
