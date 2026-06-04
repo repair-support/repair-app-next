@@ -41,6 +41,12 @@ export const SERVICE_BRANDS = [
   "ダイワンテレコム 買取",
 ] as const;
 
+export const COMMON_RECEPTION_OPTIONS = ["郵送受付", "ダイワン送付", "Mac郵送", "Fixmart", "パーツマスター", "FYL"] as const;
+
+export const DEFAULT_STAFF_MAP: Partial<Record<StoreName, string[]>> = {
+  青森店: ["中村", "成田", "浅利", "鳥谷部", "高橋"],
+};
+
 export const DEFAULT_STATUSES = [
   "受付中",
   "受付済み",

@@ -19,6 +19,8 @@ const FALLBACK_STATUSES = [
 ];
 
 const editable: [keyof Reception, string][] = [
+  ["staffName", "受付担当"],
+  ["repairStaff", "修理担当者"],
   ["customerName", "お名前"],
   ["customerKana", "フリガナ"],
   ["completeTel", "連絡先"],
@@ -71,6 +73,7 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
   const [form, setForm] = useState(initial);
   const [costReference, setCostReference] = useState<CostReferenceData | null>(null);
   const [statuses, setStatuses] = useState(FALLBACK_STATUSES);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const canPrint = form.status === "申込書発行済" || form.status === "返却済み" || form.serviceType.includes("買取");
 
@@ -87,7 +90,13 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
         if (body.ok) setCostReference(body.data);
       })
       .catch(() => undefined);
-  }, []);
+    fetch(`/api/staff?store=${encodeURIComponent(initial.storeName)}`)
+      .then((response) => response.json())
+      .then((body) => {
+        if (body.ok && Array.isArray(body.data)) setStaffOptions(body.data);
+      })
+      .catch(() => undefined);
+  }, [initial.storeName]);
 
   const costOptions = useMemo(() => {
     if (!costReference || !form.deviceModel) return [];
@@ -145,7 +154,16 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
           return (
             <label className={multiline ? "sm:col-span-2" : undefined} key={name}>
               <span className="label">{label}</span>
-              {multiline ? (
+              {["staffName", "repairStaff", "assessStaff"].includes(name) ? (
+                <select className="input" value={String(form[name] ?? "")} onChange={(event) => setForm({ ...form, [name]: event.target.value })}>
+                  <option value="">未設定</option>
+                  {staffOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : multiline ? (
                 <textarea className="input min-h-24" value={String(form[name] ?? "")} onChange={(event) => setForm({ ...form, [name]: event.target.value })} />
               ) : (
                 <input className="input" value={String(form[name] ?? "")} onChange={(event) => setForm({ ...form, [name]: event.target.value })} />

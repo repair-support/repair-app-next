@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { google, sheets_v4 } from "googleapis";
 import {
+  COMMON_RECEPTION_OPTIONS,
   DEFAULT_PURCHASE_STATUSES,
+  DEFAULT_STAFF_MAP,
   DEFAULT_STATUSES,
   RECEPTION_HEADERS,
   STORE_CODE_MAP,
@@ -13,6 +15,7 @@ import { CostOption, CostReferenceData, Device, MasterData, ModelCostOptions, Re
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const COST_SPREADSHEET_ID = process.env.COST_SPREADSHEET_ID || "19C4DBrD5WbLx77572NmtV4-AxNoRYS3vxAUz-S3e0Pc";
+const STAFF_SETTINGS_SHEET_NAME = "スタッフ設定";
 
 const fields: (keyof Omit<Reception, "rowNumber">)[] = [
   "receptionId", "receptionDate", "staffName", "repairStaff", "status", "deviceCategory",
@@ -176,6 +179,17 @@ async function sheetIdFor(sheets: sheets_v4.Sheets, spreadsheetId: string, store
   return typeof sheetId === "number" ? sheetId : undefined;
 }
 
+async function ensureSheet(sheets: sheets_v4.Sheets, spreadsheetId: string, title: string) {
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId });
+  const existing = metadata.data.sheets?.find((sheet) => sheet.properties?.title === title);
+  if (existing?.properties?.sheetId !== undefined) return existing.properties.sheetId;
+  const created = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: { requests: [{ addSheet: { properties: { title } } }] },
+  });
+  return created.data.replies?.[0]?.addSheet?.properties?.sheetId;
+}
+
 async function deleteRows(sheets: sheets_v4.Sheets, spreadsheetId: string, sheetId: number, rowNumbers: number[]) {
   const sorted = [...rowNumbers].sort((a, b) => b - a);
   for (const rowNumber of sorted) {
@@ -254,6 +268,55 @@ export async function getStatuses(): Promise<string[]> {
     range: "ステータス!A2:B",
   });
   return Array.from(new Set((response.data.values ?? []).flatMap((row) => [row[0], row[1]]).filter(Boolean)));
+}
+
+export async function getStaffOptions(storeName: string): Promise<string[]> {
+  if (!isStoreName(storeName)) throw new Error("Invalid store name");
+  const response = await getSheetsClient().spreadsheets.values.get({
+    spreadsheetId: requireSpreadsheetId(),
+    range: `'${STAFF_SETTINGS_SHEET_NAME}'!A2:C`,
+  }).catch(() => ({ data: { values: [] as unknown[][] } }));
+  const rows = response.data.values ?? [];
+  const configured = rows
+    .filter((row) => String(row[0] ?? "") === storeName)
+    .map((row) => String(row[1] ?? "").trim())
+    .filter(Boolean);
+  return configured.length > 0 ? Array.from(new Set(configured)) : DEFAULT_STAFF_MAP[storeName] ?? [];
+}
+
+export async function getReceptionStaffOptions(storeName: string): Promise<string[]> {
+  if (!isStoreName(storeName)) throw new Error("Invalid store name");
+  const staff = await getStaffOptions(storeName);
+  const otherStores = STORE_NAMES.filter((store) => store !== storeName);
+  return Array.from(new Set([...staff, ...COMMON_RECEPTION_OPTIONS, ...otherStores]));
+}
+
+export async function updateStaffOptions(storeName: string, staffNames: string[]) {
+  if (!isStoreName(storeName)) throw new Error("Invalid store name");
+  const names = Array.from(new Set(staffNames.map((name) => name.trim()).filter(Boolean)));
+  if (names.length === 0) throw new Error("スタッフ名を1名以上入力してください");
+
+  const sheets = getSheetsClient();
+  await ensureSheet(sheets, requireSpreadsheetId(), STAFF_SETTINGS_SHEET_NAME);
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: requireSpreadsheetId(),
+    range: `'${STAFF_SETTINGS_SHEET_NAME}'!A2:C`,
+  }).catch(() => ({ data: { values: [] as unknown[][] } }));
+  const rows = (response.data.values ?? []).filter((row) => String(row[0] ?? "") !== storeName);
+  const now = new Date().toISOString();
+  const nextRows = [
+    ["店舗名", "スタッフ名", "更新日時"],
+    ...rows,
+    ...names.map((name) => [storeName, name, now]),
+  ];
+  await sheets.spreadsheets.values.clear({ spreadsheetId: requireSpreadsheetId(), range: `'${STAFF_SETTINGS_SHEET_NAME}'` });
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: requireSpreadsheetId(),
+    range: `'${STAFF_SETTINGS_SHEET_NAME}'!A1:C${nextRows.length}`,
+    valueInputOption: "RAW",
+    requestBody: { values: nextRows },
+  });
+  return names;
 }
 
 export async function getMasterData(): Promise<MasterData> {
@@ -345,7 +408,7 @@ export async function setupSpreadsheet() {
   const spreadsheetId = requireSpreadsheetId();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId });
   const existing = new Set(metadata.data.sheets?.map((sheet) => sheet.properties?.title));
-  const titles = ["設定", ...STORE_NAMES, "マスターデータ", "ステータス"];
+  const titles = ["設定", ...STORE_NAMES, "マスターデータ", "ステータス", STAFF_SETTINGS_SHEET_NAME];
   const missing = titles.filter((title) => !existing.has(title));
   if (missing.length) {
     await sheets.spreadsheets.batchUpdate({
@@ -366,6 +429,10 @@ export async function setupSpreadsheet() {
           DEFAULT_PURCHASE_STATUSES[index] ?? "",
         ]),
       ],
+    },
+    {
+      range: `'${STAFF_SETTINGS_SHEET_NAME}'!A1:C1`,
+      values: [["店舗名", "スタッフ名", "更新日時"]],
     },
   ];
   await sheets.spreadsheets.values.batchUpdate({

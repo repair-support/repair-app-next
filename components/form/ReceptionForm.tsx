@@ -180,6 +180,7 @@ export default function ReceptionForm({ store }: { store: string }) {
   const [search, setSearch] = useState("");
   const [form, setForm] = useState<FormState>({
     agreement: false,
+    staffName: "",
     repairHistory: "",
     paymentMethod: "未定",
     idDocuments: "未確認",
@@ -202,6 +203,7 @@ export default function ReceptionForm({ store }: { store: string }) {
   });
   const [devices, setDevices] = useState<Device[]>([{ ...EMPTY_DEVICE }]);
   const [master, setMaster] = useState<MasterData | null>(null);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [completion, setCompletion] = useState<Completion | null>(null);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -214,7 +216,16 @@ export default function ReceptionForm({ store }: { store: string }) {
         if (body.ok) setMaster(body.data);
       })
       .catch(() => undefined);
-  }, []);
+    fetch(`/api/staff?store=${encodeURIComponent(store)}`)
+      .then((response) => response.json())
+      .then((body) => {
+        if (body.ok && Array.isArray(body.data)) {
+          setStaffOptions(body.data);
+          setForm((current) => ({ ...current, staffName: String(current.staffName || body.data[0] || "") }));
+        }
+      })
+      .catch(() => undefined);
+  }, [store]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -265,7 +276,7 @@ export default function ReceptionForm({ store }: { store: string }) {
       const response = await fetch("/api/reception", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storeName: store, serviceType }),
+        body: JSON.stringify({ storeName: store, serviceType, staffName: form.staffName }),
       });
       const body = await response.json();
       if (!body.ok) return setError(body.error ?? "受付番号を発行できませんでした。");
@@ -333,6 +344,7 @@ export default function ReceptionForm({ store }: { store: string }) {
           repairPrice: primary.repairPrice,
           cost: primary.cost,
           repairHistory: isPurchase ? String(form.repairHistory || "買取受付") : form.repairHistory,
+          staffName: form.staffName ?? "",
           purchaseAgreement: isPurchase ? "承諾済み" : String(form.purchaseAgreement ?? ""),
           color: form.color ?? "",
           carrier: form.carrier ?? "",
@@ -400,6 +412,7 @@ export default function ReceptionForm({ store }: { store: string }) {
             ))}
           </div>
         </div>
+        <SelectField label="受付担当" name="staffName" value={form.staffName} options={staffOptions} onChange={set} />
         <div className="grid grid-cols-2 gap-2">
           <button className={mode === "new" ? "button" : "button-secondary"} type="button" onClick={() => setMode("new")}>新規受付</button>
           <button className={mode === "existing" ? "button" : "button-secondary"} type="button" onClick={() => setMode("existing")}>既存番号から受付</button>
@@ -529,7 +542,7 @@ export default function ReceptionForm({ store }: { store: string }) {
           {!isPurchase && <SelectField label="スモールパーツ種別" name="smallPartsType" value={form.smallPartsType} options={smallPartsOptions} onChange={set} />}
           {!isPurchase && <SelectField label="防水テープ施工" name="waterproofTape" value={form.waterproofTape} options={yesNoOptions} onChange={set} />}
           {!isPurchase && <SelectField label="保証有無" name="warrantyStatus" value={form.warrantyStatus} options={warrantyOptions} onChange={set} />}
-          {isPurchase && <TextField label="査定員" name="assessStaff" value={form.assessStaff} onChange={set} />}
+          {isPurchase && <SelectField label="査定員" name="assessStaff" value={form.assessStaff} options={staffOptions} onChange={set} />}
           {isPurchase && <TextField label="品目数" name="itemCount" value={form.itemCount} inputMode="numeric" onChange={set} />}
           {isPurchase && <TextField label="色" name="color" value={form.color} onChange={set} />}
           {isPurchase && <SelectField label="キャリア" name="carrier" value={form.carrier} options={carrierOptions} onChange={set} />}

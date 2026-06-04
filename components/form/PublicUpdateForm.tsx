@@ -191,6 +191,7 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
   const [master, setMaster] = useState<MasterData | null>(null);
   const [costReference, setCostReference] = useState<CostReferenceData | null>(null);
   const [statuses, setStatuses] = useState<string[]>(FALLBACK_STATUSES);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
   const [message, setMessage] = useState("読み込み中...");
   const [saving, setSaving] = useState(false);
 
@@ -217,6 +218,15 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
       setReception(receptionBody.data);
       setForm(normalizeForm(receptionBody.data));
       setMessage("");
+
+      if (receptionBody.data.storeName) {
+        fetch(`/api/staff?store=${encodeURIComponent(receptionBody.data.storeName)}`)
+          .then((response) => response.json())
+          .then((body) => {
+            if (active && body.ok && Array.isArray(body.data)) setStaffOptions(body.data);
+          })
+          .catch(() => undefined);
+      }
 
       const masterBody = await masterResponse.json().catch(() => null);
       if (masterBody?.ok) setMaster(masterBody.data);
@@ -349,8 +359,8 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
         <div className="grid gap-4 md:grid-cols-2">
           <SelectField label="ステータス" name="status" value={form.status ?? ""} options={statuses} onChange={updateField} />
           <SelectField label="サービス種別" name="serviceType" value={form.serviceType ?? ""} options={SERVICE_BRANDS} onChange={updateField} />
-          <TextField label="受付担当" name="staffName" value={form.staffName ?? ""} onChange={updateField} />
-          <TextField label="修理担当" name="repairStaff" value={form.repairStaff ?? ""} onChange={updateField} />
+          <SelectField label="受付担当" name="staffName" value={form.staffName ?? ""} options={staffOptions} onChange={updateField} />
+          <SelectField label="修理担当" name="repairStaff" value={form.repairStaff ?? ""} options={staffOptions} onChange={updateField} />
         </div>
       </section>
 
@@ -390,7 +400,7 @@ export default function PublicUpdateForm({ id, token }: { id: string; token: str
         <section className="space-y-3">
           <h2 className="text-lg font-bold">買取査定情報</h2>
           <div className="grid gap-4 md:grid-cols-2">
-            <TextField label="査定員" name="assessStaff" value={form.assessStaff ?? ""} onChange={updateField} />
+            <SelectField label="査定員" name="assessStaff" value={form.assessStaff ?? ""} options={staffOptions} onChange={updateField} />
             <TextField label="品目数" name="itemCount" value={form.itemCount ?? ""} inputMode="numeric" onChange={updateField} />
             <SelectField label="本人確認書類" name="idDocuments" value={form.idDocuments ?? ""} options={["未確認", "運転免許証", "マイナンバーカード", "健康保険証", "学生証", "その他"]} onChange={updateField} />
             <SelectField label="買取承諾" name="purchaseAgreement" value={form.purchaseAgreement ?? ""} options={PURCHASE_AGREEMENT_OPTIONS} onChange={updateField} />

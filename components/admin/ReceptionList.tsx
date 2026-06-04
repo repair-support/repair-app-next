@@ -25,6 +25,8 @@ export default function ReceptionList({ initial, store }: { initial: Reception[]
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [statuses, setStatuses] = useState(FALLBACK_STATUSES);
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
+  const [staffName, setStaffName] = useState("");
 
   useEffect(() => {
     fetch("/api/status")
@@ -33,7 +35,16 @@ export default function ReceptionList({ initial, store }: { initial: Reception[]
         if (body.ok && Array.isArray(body.data) && body.data.length > 0) setStatuses(body.data);
       })
       .catch(() => undefined);
-  }, []);
+    fetch(`/api/staff?store=${encodeURIComponent(store)}`)
+      .then((response) => response.json())
+      .then((body) => {
+        if (body.ok && Array.isArray(body.data)) {
+          setStaffOptions(body.data);
+          setStaffName((current) => current || body.data[0] || "");
+        }
+      })
+      .catch(() => undefined);
+  }, [store]);
 
   const filtered = useMemo(() => {
     const keyword = q.toLowerCase();
@@ -58,7 +69,7 @@ export default function ReceptionList({ initial, store }: { initial: Reception[]
     const response = await fetch("/api/reception", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ storeName: store, serviceType: "修理受付", staffName: "スタッフ" }),
+      body: JSON.stringify({ storeName: store, serviceType: "修理受付", staffName }),
     });
     const body = await response.json();
     if (body.ok) router.push(`/admin/${encodeURIComponent(store)}/${encodeURIComponent(body.receptionId)}`);
@@ -69,11 +80,19 @@ export default function ReceptionList({ initial, store }: { initial: Reception[]
       <button className="button mb-4" type="button" onClick={createReception}>
         新規受付を作成
       </button>
-      <div className="mb-4 grid gap-3 sm:grid-cols-2">
+      <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <input className="input" placeholder="受付ID・お名前・機種・電話番号で検索" value={q} onChange={(event) => setQ(event.target.value)} />
         <select className="input" value={status} onChange={(event) => setStatus(event.target.value)}>
           <option value="">全ステータス</option>
           {statuses.map((value) => (
+            <option key={value} value={value}>
+              {value}
+            </option>
+          ))}
+        </select>
+        <select className="input" value={staffName} onChange={(event) => setStaffName(event.target.value)}>
+          <option value="">受付担当未設定</option>
+          {staffOptions.map((value) => (
             <option key={value} value={value}>
               {value}
             </option>
