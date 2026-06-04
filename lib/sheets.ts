@@ -33,14 +33,17 @@ function requireSpreadsheetId() {
 }
 
 export function getSheetsClient(): sheets_v4.Sheets {
+  return google.sheets({ version: "v4", auth: getGoogleAuth(["https://www.googleapis.com/auth/spreadsheets"]) });
+}
+
+export function getGoogleAuth(scopes: string[]) {
   const encoded = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!encoded) throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON is not configured");
   const credentials = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
-  const auth = new google.auth.GoogleAuth({
+  return new google.auth.GoogleAuth({
     credentials,
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    scopes,
   });
-  return google.sheets({ version: "v4", auth });
 }
 
 function toReception(row: unknown[], rowNumber: number): Reception {

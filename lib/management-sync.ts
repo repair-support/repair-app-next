@@ -1,5 +1,5 @@
-import type { sheets_v4 } from "googleapis";
-import { getSheetsClient } from "@/lib/sheets";
+import { google, type sheets_v4 } from "googleapis";
+import { getGoogleAuth, getSheetsClient } from "@/lib/sheets";
 import type { Device, Reception } from "@/lib/types";
 
 const MAIN_SPREADSHEET_ID = process.env.SPREADSHEET_ID;
@@ -8,6 +8,8 @@ const PURCHASE_MGMT_SPREADSHEET_ID =
 
 const CUSTOMER_MGMT_SHEET_NAME = "顧客管理";
 const CUSTOMER_MGMT_ID_HEADER = "受付ID(管理用)";
+const CUSTOMER_MGMT_LINKS_SHEET_NAME = "顧客管理表一覧";
+const CUSTOMER_MGMT_LINK_HEADERS = ["店舗名", "年月", "スプレッドシートID", "URL", "更新日時"] as const;
 
 const CUSTOMER_MGMT_HEADERS = [
   "No.",
@@ -122,6 +124,51 @@ function storeSheetName(storeName: string) {
   return storeName.replace(/店$/, "");
 }
 
+function parseCustomerMgmtSpreadsheetIds() {
+  const raw = process.env.CUSTOMER_MGMT_SPREADSHEET_IDS;
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== ""),
+    );
+  } catch {
+    return {};
+  }
+}
+
+const CONFIGURED_CUSTOMER_MGMT_SPREADSHEET_IDS = parseCustomerMgmtSpreadsheetIds();
+
+function managementShareEmails() {
+  return Array.from(new Set([
+    process.env.ADMIN_EMAIL,
+    ...(process.env.ALLOWED_EMAILS ?? "").split(","),
+  ]
+    .map((email) => email?.trim().toLowerCase())
+    .filter((email): email is string => Boolean(email))));
+}
+
+function monthKey(value: string) {
+  const date = value ? new Date(value) : new Date();
+  const validDate = Number.isNaN(date.getTime()) ? new Date() : date;
+  const formatter = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+  });
+  return formatter.format(validDate);
+}
+
+function monthLabel(key: string) {
+  const [year, month] = key.split("-");
+  return `${year}年${Number(month)}月`;
+}
+
+function customerMgmtTargetDate(reception: Pick<Reception, "returnDate" | "receptionDate" | "lastUpdated">) {
+  return reception.returnDate || reception.receptionDate || reception.lastUpdated;
+}
+
 function colNumToLetter(n: number) {
   let result = "";
   while (n > 0) {
@@ -146,6 +193,145 @@ async function ensureSheet(sheets: sheets_v4.Sheets, spreadsheetId: string, titl
 async function readValues(sheets: sheets_v4.Sheets, spreadsheetId: string, range: string) {
   const response = await sheets.spreadsheets.values.get({ spreadsheetId, range });
   return response.data.values ?? [];
+}
+
+async function setupCustomerMgmtLinksSheet(sheets: sheets_v4.Sheets) {
+  if (!MAIN_SPREADSHEET_ID) return;
+  await ensureSheet(sheets, MAIN_SPREADSHEET_ID, CUSTOMER_MGMT_LINKS_SHEET_NAME);
+  const values = await readValues(sheets, MAIN_SPREADSHEET_ID, `'${CUSTOMER_MGMT_LINKS_SHEET_NAME}'!A1:E1`);
+  if ((values[0] ?? []).join("") === "") {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: MAIN_SPREADSHEET_ID,
+      range: `'${CUSTOMER_MGMT_LINKS_SHEET_NAME}'!A1:E1`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[...CUSTOMER_MGMT_LINK_HEADERS]] },
+    });
+  }
+}
+
+async function findCustomerMgmtLink(sheets: sheets_v4.Sheets, storeName: string, key: string) {
+  if (!MAIN_SPREADSHEET_ID) return undefined;
+  await setupCustomerMgmtLinksSheet(sheets);
+  const rows = await readValues(sheets, MAIN_SPREADSHEET_ID, `'${CUSTOMER_MGMT_LINKS_SHEET_NAME}'!A2:E`);
+  const index = rows.findIndex((row) => String(row[0] ?? "") === storeName && String(row[1] ?? "") === key);
+  if (index < 0) return undefined;
+  const row = rows[index];
+  const spreadsheetId = String(row[2] ?? "");
+  if (!spreadsheetId) return undefined;
+  return {
+    rowNumber: index + 2,
+    spreadsheetId,
+    url: String(row[3] ?? ""),
+  };
+}
+
+async function saveCustomerMgmtLink(
+  sheets: sheets_v4.Sheets,
+  storeName: string,
+  key: string,
+  spreadsheetId: string,
+  url: string,
+  rowNumber?: number,
+) {
+  if (!MAIN_SPREADSHEET_ID) return;
+  await setupCustomerMgmtLinksSheet(sheets);
+  const values = [[storeName, key, spreadsheetId, url, new Date().toISOString()]];
+  if (rowNumber) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: MAIN_SPREADSHEET_ID,
+      range: `'${CUSTOMER_MGMT_LINKS_SHEET_NAME}'!A${rowNumber}:E${rowNumber}`,
+      valueInputOption: "RAW",
+      requestBody: { values },
+    });
+    return;
+  }
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: MAIN_SPREADSHEET_ID,
+    range: `'${CUSTOMER_MGMT_LINKS_SHEET_NAME}'!A:E`,
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values },
+  });
+}
+
+async function createCustomerMgmtSpreadsheet(sheets: sheets_v4.Sheets, storeName: string, key: string) {
+  const created = await sheets.spreadsheets.create({
+    requestBody: {
+      properties: {
+        title: `${storeSheetName(storeName)} 顧客管理表 ${monthLabel(key)}`,
+      },
+    },
+  });
+  const spreadsheetId = created.data.spreadsheetId;
+  if (!spreadsheetId) throw new Error("顧客管理表の作成に失敗しました");
+  await shareSpreadsheetWithManagers(spreadsheetId);
+  return {
+    spreadsheetId,
+    url: created.data.spreadsheetUrl ?? `https://docs.google.com/spreadsheets/d/${spreadsheetId}`,
+  };
+}
+
+async function shareSpreadsheetWithManagers(spreadsheetId: string) {
+  const emails = managementShareEmails();
+  if (!emails.length) return;
+  try {
+    const auth = getGoogleAuth([
+      "https://www.googleapis.com/auth/spreadsheets",
+      "https://www.googleapis.com/auth/drive.file",
+    ]);
+    const drive = google.drive({ version: "v3", auth });
+    for (const emailAddress of emails) {
+      await drive.permissions.create({
+        fileId: spreadsheetId,
+        sendNotificationEmail: false,
+        requestBody: {
+          type: "user",
+          role: "writer",
+          emailAddress,
+        },
+      });
+    }
+  } catch (error) {
+    console.warn("Customer management spreadsheet sharing failed:", error);
+  }
+}
+
+async function getCustomerMgmtTarget(
+  sheets: sheets_v4.Sheets,
+  reception: Pick<Reception, "storeName" | "returnDate" | "receptionDate" | "lastUpdated">,
+) {
+  const storeName = reception.storeName || "未設定";
+  const key = monthKey(customerMgmtTargetDate(reception));
+  const configuredId = CONFIGURED_CUSTOMER_MGMT_SPREADSHEET_IDS[storeName] ?? CONFIGURED_CUSTOMER_MGMT_SPREADSHEET_IDS[storeSheetName(storeName)];
+  if (configuredId) {
+    const url = `https://docs.google.com/spreadsheets/d/${configuredId}`;
+    const existing = await findCustomerMgmtLink(sheets, storeName, key);
+    await saveCustomerMgmtLink(sheets, storeName, key, configuredId, url, existing?.rowNumber);
+    return { spreadsheetId: configuredId, url };
+  }
+
+  const existing = await findCustomerMgmtLink(sheets, storeName, key);
+  if (existing) return existing;
+
+  const created = await createCustomerMgmtSpreadsheet(sheets, storeName, key);
+  await saveCustomerMgmtLink(sheets, storeName, key, created.spreadsheetId, created.url);
+  return created;
+}
+
+export async function getCustomerMgmtLinks() {
+  if (!MAIN_SPREADSHEET_ID) return [];
+  const sheets = getSheetsClient();
+  await setupCustomerMgmtLinksSheet(sheets);
+  const rows = await readValues(sheets, MAIN_SPREADSHEET_ID, `'${CUSTOMER_MGMT_LINKS_SHEET_NAME}'!A2:E`);
+  return rows
+    .filter((row) => row.some(Boolean))
+    .map((row) => ({
+      storeName: String(row[0] ?? ""),
+      month: String(row[1] ?? ""),
+      spreadsheetId: String(row[2] ?? ""),
+      url: String(row[3] ?? ""),
+      updatedAt: String(row[4] ?? ""),
+    }));
 }
 
 async function setupCustomerMgmtSheet(sheets: sheets_v4.Sheets, spreadsheetId: string) {
@@ -234,8 +420,9 @@ function customerRowFromHeaders(headers: unknown[], source: ReturnType<typeof cu
 export async function syncReceptionToCustomerMgmt(reception: Reception) {
   if (!MAIN_SPREADSHEET_ID) return;
   const sheets = getSheetsClient();
-  const layout = await getCustomerMgmtLayout(sheets, MAIN_SPREADSHEET_ID);
-  const rows = await readValues(sheets, MAIN_SPREADSHEET_ID, `'${CUSTOMER_MGMT_SHEET_NAME}'!A${layout.firstDataRow}:${layout.lastColumn}`);
+  const target = await getCustomerMgmtTarget(sheets, reception);
+  const layout = await getCustomerMgmtLayout(sheets, target.spreadsheetId);
+  const rows = await readValues(sheets, target.spreadsheetId, `'${CUSTOMER_MGMT_SHEET_NAME}'!A${layout.firstDataRow}:${layout.lastColumn}`);
   const targetRows = customerSourceRows(reception).map((source) => customerRowFromHeaders(layout.headers, source));
   const existingById = new Map<string, number>();
   rows.forEach((row, index) => {
@@ -248,14 +435,14 @@ export async function syncReceptionToCustomerMgmt(reception: Reception) {
     const existingRow = existingById.get(managedId);
     if (existingRow) {
       await sheets.spreadsheets.values.update({
-        spreadsheetId: MAIN_SPREADSHEET_ID,
+        spreadsheetId: target.spreadsheetId,
         range: `'${CUSTOMER_MGMT_SHEET_NAME}'!A${existingRow}:${layout.lastColumn}${existingRow}`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [row] },
       });
     } else {
       await sheets.spreadsheets.values.append({
-        spreadsheetId: MAIN_SPREADSHEET_ID,
+        spreadsheetId: target.spreadsheetId,
         range: `'${CUSTOMER_MGMT_SHEET_NAME}'!A:${layout.lastColumn}`,
         valueInputOption: "USER_ENTERED",
         insertDataOption: "INSERT_ROWS",
@@ -265,12 +452,15 @@ export async function syncReceptionToCustomerMgmt(reception: Reception) {
   }
 }
 
-export async function removeReceptionFromCustomerMgmt(reception: Pick<Reception, "receptionId">) {
+export async function removeReceptionFromCustomerMgmt(
+  reception: Pick<Reception, "receptionId" | "storeName" | "returnDate" | "receptionDate" | "lastUpdated">,
+) {
   if (!MAIN_SPREADSHEET_ID) return;
   const sheets = getSheetsClient();
-  const layout = await getCustomerMgmtLayout(sheets, MAIN_SPREADSHEET_ID);
-  const rows = await readValues(sheets, MAIN_SPREADSHEET_ID, `'${CUSTOMER_MGMT_SHEET_NAME}'!A${layout.firstDataRow}:${layout.lastColumn}`);
-  const metadata = await sheets.spreadsheets.get({ spreadsheetId: MAIN_SPREADSHEET_ID });
+  const target = await getCustomerMgmtTarget(sheets, reception);
+  const layout = await getCustomerMgmtLayout(sheets, target.spreadsheetId);
+  const rows = await readValues(sheets, target.spreadsheetId, `'${CUSTOMER_MGMT_SHEET_NAME}'!A${layout.firstDataRow}:${layout.lastColumn}`);
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId: target.spreadsheetId });
   const sheetId = metadata.data.sheets?.find((sheet) => sheet.properties?.title === CUSTOMER_MGMT_SHEET_NAME)?.properties?.sheetId;
   if (sheetId === undefined) return;
 
@@ -282,7 +472,7 @@ export async function removeReceptionFromCustomerMgmt(reception: Pick<Reception,
 
   for (const rowNumber of rowNumbers) {
     await sheets.spreadsheets.batchUpdate({
-      spreadsheetId: MAIN_SPREADSHEET_ID,
+      spreadsheetId: target.spreadsheetId,
       requestBody: { requests: [{ deleteDimension: { range: {
         sheetId,
         dimension: "ROWS",
