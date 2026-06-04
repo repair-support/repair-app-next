@@ -9,7 +9,7 @@ import {
   StoreName,
   isStoreName,
 } from "@/lib/constants";
-import { CostOption, CostReferenceData, MasterData, ModelCostOptions, Reception } from "@/lib/types";
+import { CostOption, CostReferenceData, Device, MasterData, ModelCostOptions, Reception } from "@/lib/types";
 
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const COST_SPREADSHEET_ID = process.env.COST_SPREADSHEET_ID || "19C4DBrD5WbLx77572NmtV4-AxNoRYS3vxAUz-S3e0Pc";
@@ -52,7 +52,51 @@ function toRow(data: Partial<Reception>): string[] {
   return fields.map((field) => field === "agreement" ? String(Boolean(data[field])) : String(data[field] ?? ""));
 }
 
+function parseDevices(value: string): Device[] {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function isSubReceptionId(receptionId: string) {
+  return /#\d+$/.test(receptionId);
+}
+
+function subReceptionId(receptionId: string, index: number) {
+  return `${receptionId}#${index + 1}`;
+}
+
+function subDeviceReception(parent: Reception, device: Device, index: number): Partial<Reception> {
+  return {
+    ...parent,
+    receptionId: subReceptionId(parent.receptionId, index),
+    rowNumber: undefined,
+    deviceCategory: device.category || parent.deviceCategory,
+    deviceModel: device.model || parent.deviceModel,
+    imei: device.imei || parent.imei,
+    symptom: device.symptom || parent.symptom,
+    repairContent: device.repairContent || parent.repairContent,
+    repairPrice: device.repairPrice || parent.repairPrice,
+    cost: device.cost || parent.cost,
+    devicesJson: "",
+  };
+}
+
 export async function getReceptions(storeName: string): Promise<Reception[]> {
+  if (!isStoreName(storeName)) throw new Error("Invalid store name");
+  const response = await getSheetsClient().spreadsheets.values.get({
+    spreadsheetId: requireSpreadsheetId(),
+    range: `'${storeName}'!A2:BD`,
+  });
+  return (response.data.values ?? [])
+    .map((row, index) => toReception(row, index + 2))
+    .filter((reception) => !isSubReceptionId(reception.receptionId));
+}
+
+async function getAllReceptions(storeName: string): Promise<Reception[]> {
   if (!isStoreName(storeName)) throw new Error("Invalid store name");
   const response = await getSheetsClient().spreadsheets.values.get({
     spreadsheetId: requireSpreadsheetId(),
@@ -62,7 +106,7 @@ export async function getReceptions(storeName: string): Promise<Reception[]> {
 }
 
 export async function getReceptionById(storeName: string, receptionId: string) {
-  return (await getReceptions(storeName)).find((item) => item.receptionId === receptionId) ?? null;
+  return (await getAllReceptions(storeName)).find((item) => item.receptionId === receptionId) ?? null;
 }
 
 export async function issueReceptionId(storeName: StoreName): Promise<string> {
@@ -112,13 +156,77 @@ export async function updateReception(storeName: string, receptionId: string, da
   const current = await getReceptionById(storeName, receptionId);
   if (!current) throw new Error("Reception not found");
   const updated = { ...current, ...data, receptionId, storeName, lastUpdated: new Date().toISOString() };
-  await getSheetsClient().spreadsheets.values.update({
+  const sheets = getSheetsClient();
+  await sheets.spreadsheets.values.update({
     spreadsheetId: requireSpreadsheetId(),
     range: `'${storeName}'!A${current.rowNumber}:BD${current.rowNumber}`,
     valueInputOption: "RAW",
     requestBody: { values: [toRow(updated)] },
   });
+  await syncSubDeviceRows(sheets, storeName, updated);
   return updated;
+}
+
+async function sheetIdFor(sheets: sheets_v4.Sheets, spreadsheetId: string, storeName: string) {
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetId = metadata.data.sheets?.find((item) => item.properties?.title === storeName)?.properties?.sheetId;
+  return typeof sheetId === "number" ? sheetId : undefined;
+}
+
+async function deleteRows(sheets: sheets_v4.Sheets, spreadsheetId: string, sheetId: number, rowNumbers: number[]) {
+  const sorted = [...rowNumbers].sort((a, b) => b - a);
+  for (const rowNumber of sorted) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ deleteDimension: { range: {
+        sheetId,
+        dimension: "ROWS",
+        startIndex: rowNumber - 1,
+        endIndex: rowNumber,
+      } } }] },
+    });
+  }
+}
+
+async function syncSubDeviceRows(sheets: sheets_v4.Sheets, storeName: string, parent: Reception) {
+  if (isSubReceptionId(parent.receptionId)) return;
+  const spreadsheetId = requireSpreadsheetId();
+  const sheetId = await sheetIdFor(sheets, spreadsheetId, storeName);
+  if (sheetId === undefined) throw new Error("Store sheet not found");
+  const allRows = await getAllReceptions(storeName);
+  const currentSubRows = allRows.filter((row) => row.receptionId.startsWith(`${parent.receptionId}#`));
+  const devices = parseDevices(parent.devicesJson);
+  const subDevices = devices.slice(1);
+
+  const excessRows = currentSubRows.filter((row) => {
+    const match = row.receptionId.match(/#(\d+)$/);
+    const index = Number(match?.[1] ?? 0) - 2;
+    return index < 0 || index >= subDevices.length;
+  });
+  await deleteRows(sheets, spreadsheetId, sheetId, excessRows.map((row) => row.rowNumber));
+
+  for (let index = 0; index < subDevices.length; index += 1) {
+    const device = subDevices[index];
+    const id = subReceptionId(parent.receptionId, index + 1);
+    const existing = currentSubRows.find((row) => row.receptionId === id);
+    const rowData = subDeviceReception(parent, device, index + 1);
+    if (existing) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${storeName}'!A${existing.rowNumber}:BD${existing.rowNumber}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [toRow(rowData)] },
+      });
+    } else {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `'${storeName}'!A:BD`,
+        valueInputOption: "RAW",
+        insertDataOption: "INSERT_ROWS",
+        requestBody: { values: [toRow(rowData)] },
+      });
+    }
+  }
 }
 
 export async function deleteReception(storeName: string, receptionId: string) {
@@ -127,14 +235,13 @@ export async function deleteReception(storeName: string, receptionId: string) {
   const sheets = getSheetsClient();
   const metadata = await sheets.spreadsheets.get({ spreadsheetId: requireSpreadsheetId() });
   const sheet = metadata.data.sheets?.find((item) => item.properties?.title === storeName);
-  if (sheet?.properties?.sheetId === undefined) throw new Error("Store sheet not found");
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: requireSpreadsheetId(),
-    requestBody: { requests: [{ deleteDimension: { range: {
-      sheetId: sheet.properties.sheetId, dimension: "ROWS",
-      startIndex: current.rowNumber - 1, endIndex: current.rowNumber,
-    } } }] },
-  });
+  const sheetId = sheet?.properties?.sheetId;
+  if (typeof sheetId !== "number") throw new Error("Store sheet not found");
+  const allRows = await getAllReceptions(storeName);
+  const relatedRows = allRows
+    .filter((row) => row.receptionId === receptionId || row.receptionId.startsWith(`${receptionId}#`))
+    .map((row) => row.rowNumber);
+  await deleteRows(sheets, requireSpreadsheetId(), sheetId, relatedRows);
   return current;
 }
 
