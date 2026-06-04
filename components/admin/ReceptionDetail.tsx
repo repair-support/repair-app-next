@@ -240,6 +240,12 @@ export default function ReceptionDetail({ initial }: { initial: Reception }) {
             申込書を印刷
           </button>
         )}
+        <a className="button-secondary" href={`/admin/${encodeURIComponent(form.storeName)}/${encodeURIComponent(form.receptionId)}/print?type=receipt`} target="_blank">
+          お客様控えを印刷
+        </a>
+        <a className="button-secondary" href={`/admin/${encodeURIComponent(form.storeName)}/${encodeURIComponent(form.receptionId)}/print?type=label`} target="_blank">
+          管理ラベルを印刷
+        </a>
         <button className="rounded-lg border border-red-300 bg-white px-4 py-3 font-bold text-red-700" type="button" onClick={remove}>
           削除
         </button>
