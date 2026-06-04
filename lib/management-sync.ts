@@ -884,6 +884,10 @@ export async function syncPurchaseToManagement(reception: Reception) {
   const sheets = getSheetsClient();
   const sheetName = storeSheetName(reception.storeName);
   await setupPurchaseSheet(sheets, PURCHASE_MGMT_SPREADSHEET_ID, sheetName);
+  if (isCanceled(reception)) {
+    await removePurchaseRows(sheets, PURCHASE_MGMT_SPREADSHEET_ID, sheetName, reception.receptionId);
+    return;
+  }
   const rows = await readValues(sheets, PURCHASE_MGMT_SPREADSHEET_ID, `'${sheetName}'!A2:W`);
   const existingIndex = rows.findIndex((row) => String(row[0] ?? "") === reception.receptionId);
   const row = purchaseRow(reception);
@@ -904,6 +908,39 @@ export async function syncPurchaseToManagement(reception: Reception) {
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [row] },
   });
+}
+
+async function removePurchaseRows(sheets: sheets_v4.Sheets, spreadsheetId: string, sheetName: string, receptionId: string) {
+  await setupPurchaseSheet(sheets, spreadsheetId, sheetName);
+  const rows = await readValues(sheets, spreadsheetId, `'${sheetName}'!A2:W`);
+  const metadata = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetId = metadata.data.sheets?.find((sheet) => sheet.properties?.title === sheetName)?.properties?.sheetId;
+  if (sheetId === undefined) return;
+  const rowNumbers = rows
+    .map((row, index) => ({ receptionId: String(row[0] ?? ""), rowNumber: index + 2 }))
+    .filter((row) => row.receptionId === receptionId)
+    .map((row) => row.rowNumber)
+    .sort((a, b) => b - a);
+  for (const rowNumber of rowNumbers) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ deleteDimension: { range: {
+        sheetId,
+        dimension: "ROWS",
+        startIndex: rowNumber - 1,
+        endIndex: rowNumber,
+      } } }] },
+    });
+  }
+}
+
+export async function removeReceptionFromPurchaseManagement(
+  reception: Pick<Reception, "receptionId" | "storeName">,
+) {
+  if (!PURCHASE_MGMT_SPREADSHEET_ID) return;
+  const sheets = getSheetsClient();
+  const sheetName = storeSheetName(reception.storeName);
+  await removePurchaseRows(sheets, PURCHASE_MGMT_SPREADSHEET_ID, sheetName, reception.receptionId);
 }
 
 export async function syncReceptionSideEffects(reception: Reception) {
