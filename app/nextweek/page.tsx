@@ -35,6 +35,14 @@ const PRIORITY_OPTIONS: Array<{ value: Priority; label: string }> = [
   { value: "urgent", label: "最優先" },
 ];
 
+const PRIORITY_WEIGHT: Record<Priority, number> = {
+  urgent: 5,
+  high: 4,
+  medium: 3,
+  low: 2,
+  none: 1,
+};
+
 const PRIORITY_STYLES: Record<Priority, { card: string; pill: string; label: string }> = {
   none: {
     card: "border-l-[#5f3dc4] bg-white",
@@ -212,6 +220,22 @@ export default function NextweekPage() {
     saveOrder(nextTasks);
   }
 
+  function sortByPriority() {
+    const originalIndex = new Map(tasks.map((task, index) => [task.id, index]));
+    const nextTasks = lanes.flatMap((lane) =>
+      tasks
+        .filter((task) => (task.lane || "未整理") === lane)
+        .sort((a, b) => {
+          const priorityDiff =
+            PRIORITY_WEIGHT[b.priority || "none"] - PRIORITY_WEIGHT[a.priority || "none"];
+          return priorityDiff || (originalIndex.get(a.id) || 0) - (originalIndex.get(b.id) || 0);
+        }),
+    );
+    setTasks(nextTasks);
+    saveOrder(nextTasks);
+    setStatus("各レーン内を重要度が高い順に並び替えました");
+  }
+
   return (
     <main className="min-h-screen bg-[#f6f7f9] text-[#17202a]">
       <header className="flex flex-col gap-3 bg-[#1e3148] px-5 py-4 text-white lg:flex-row lg:items-center lg:justify-between">
@@ -232,6 +256,9 @@ export default function NextweekPage() {
           </button>
           <button className="h-10 rounded-md bg-white px-4 font-semibold text-[#17202a]" onClick={resetOrder}>
             リセット
+          </button>
+          <button className="h-10 rounded-md bg-white px-4 font-semibold text-[#17202a]" onClick={sortByPriority}>
+            優先度順
           </button>
           <button className="h-10 rounded-md bg-[#dbeafe] px-4 font-semibold text-[#1d4ed8]" onClick={() => saveOrder()}>
             保存
