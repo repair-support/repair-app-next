@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+type Priority = "none" | "low" | "medium" | "high" | "urgent";
+
 type Task = {
   id: string;
   project: string;
@@ -12,6 +14,7 @@ type Task = {
   sourceRow: number;
   lane?: string;
   isCustom?: boolean;
+  priority?: Priority;
 };
 
 type ApiData = {
@@ -24,6 +27,41 @@ type ApiData = {
 const DEFAULT_LANES = ["未整理", "月", "火", "水", "木", "金", "完了"];
 const STORAGE_KEY = "nextweek-task-board:vercel:v1";
 const CUSTOM_TASKS_KEY = "nextweek-task-board:custom-tasks:v1";
+const PRIORITY_OPTIONS: Array<{ value: Priority; label: string }> = [
+  { value: "none", label: "重要度なし" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+  { value: "urgent", label: "最優先" },
+];
+
+const PRIORITY_STYLES: Record<Priority, { card: string; pill: string; label: string }> = {
+  none: {
+    card: "border-l-[#5f3dc4] bg-white",
+    pill: "bg-slate-100 text-slate-600",
+    label: "重要度なし",
+  },
+  low: {
+    card: "border-l-[#0f766e] bg-emerald-50/40",
+    pill: "bg-emerald-100 text-emerald-800",
+    label: "低",
+  },
+  medium: {
+    card: "border-l-[#d97706] bg-amber-50/50",
+    pill: "bg-amber-100 text-amber-800",
+    label: "中",
+  },
+  high: {
+    card: "border-l-[#dc2626] bg-red-50/50",
+    pill: "bg-red-100 text-red-800",
+    label: "高",
+  },
+  urgent: {
+    card: "border-l-[#7c2d12] bg-orange-100/70",
+    pill: "bg-orange-200 text-orange-950",
+    label: "最優先",
+  },
+};
 
 export default function NextweekPage() {
   const [lanes, setLanes] = useState(DEFAULT_LANES);
@@ -76,6 +114,7 @@ export default function NextweekPage() {
                 : task.lane && activeLanes.includes(task.lane)
                   ? task.lane
                   : "未整理",
+            priority: savedItem?.priority || task.priority || "none",
             rank: savedItem?.rank ?? index,
           };
         })
@@ -99,6 +138,7 @@ export default function NextweekPage() {
       id: task.id,
       lane: task.lane || "未整理",
       rank: index,
+      priority: task.priority || "none",
     }));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     setStatus(`${payload.length} 件の並び順を保存しました`);
@@ -127,6 +167,7 @@ export default function NextweekPage() {
       sourceRow: 0,
       lane: newTaskLane,
       isCustom: true,
+      priority: "none",
     };
     const nextTasks = [...tasks, customTask];
     const nextCustomTasks = [...loadCustomTasks(), customTask];
@@ -159,6 +200,14 @@ export default function NextweekPage() {
         ? [...withoutTask.slice(0, beforeIndex), moved, ...withoutTask.slice(beforeIndex)]
         : [...withoutTask, moved];
 
+    setTasks(nextTasks);
+    saveOrder(nextTasks);
+  }
+
+  function updatePriority(taskId: string, priority: Priority) {
+    const nextTasks = tasks.map((task) => (task.id === taskId ? { ...task, priority } : task));
+    const nextCustomTasks = loadCustomTasks().map((task) => (task.id === taskId ? { ...task, priority } : task));
+    localStorage.setItem(CUSTOM_TASKS_KEY, JSON.stringify(nextCustomTasks));
     setTasks(nextTasks);
     saveOrder(nextTasks);
   }
@@ -230,6 +279,7 @@ export default function NextweekPage() {
                 onDragStart={setDraggingId}
                 onDropTask={moveTask}
                 onDeleteTask={deleteCustomTask}
+                onPriorityChange={updatePriority}
               />
             );
           })}
@@ -246,6 +296,7 @@ function Lane({
   onDragStart,
   onDropTask,
   onDeleteTask,
+  onPriorityChange,
 }: {
   lane: string;
   tasks: Task[];
@@ -253,6 +304,7 @@ function Lane({
   onDragStart: (id: string | null) => void;
   onDropTask: (taskId: string, lane: string, beforeId?: string) => void;
   onDeleteTask: (taskId: string) => void;
+  onPriorityChange: (taskId: string, priority: Priority) => void;
 }) {
   const [over, setOver] = useState(false);
 
@@ -285,6 +337,7 @@ function Lane({
             onDragStart={onDragStart}
             onDropTask={onDropTask}
             onDeleteTask={onDeleteTask}
+            onPriorityChange={onPriorityChange}
           />
         ))}
       </div>
@@ -298,13 +351,18 @@ function TaskCard({
   onDragStart,
   onDropTask,
   onDeleteTask,
+  onPriorityChange,
 }: {
   task: Task;
   lane: string;
   onDragStart: (id: string | null) => void;
   onDropTask: (taskId: string, lane: string, beforeId?: string) => void;
   onDeleteTask: (taskId: string) => void;
+  onPriorityChange: (taskId: string, priority: Priority) => void;
 }) {
+  const priority = task.priority || "none";
+  const priorityStyle = task.lane === "完了" ? PRIORITY_STYLES.low : PRIORITY_STYLES[priority];
+
   return (
     <article
       draggable
@@ -320,8 +378,8 @@ function TaskCard({
         const taskId = event.dataTransfer.getData("text/plain");
         if (taskId && taskId !== task.id) onDropTask(taskId, lane, task.id);
       }}
-      className={`cursor-grab rounded-lg border border-[#dfe5ee] border-l-4 bg-white p-3 shadow-sm active:cursor-grabbing ${
-        task.lane === "完了" ? "border-l-[#198754] opacity-65" : "border-l-[#5f3dc4]"
+      className={`cursor-grab rounded-lg border border-[#dfe5ee] border-l-4 p-3 shadow-sm active:cursor-grabbing ${
+        task.lane === "完了" ? `${priorityStyle.card} opacity-65` : priorityStyle.card
       }`}
     >
       <div className="mb-2 flex items-start justify-between gap-2">
@@ -339,16 +397,35 @@ function TaskCard({
       <div className="mb-2 flex flex-wrap gap-1.5 text-xs">
         <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{task.project}</span>
         <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{task.week}</span>
+        {priority !== "none" ? (
+          <span className={`rounded-full px-2 py-1 font-semibold ${priorityStyle.pill}`}>
+            重要度: {priorityStyle.label}
+          </span>
+        ) : null}
         {task.progress ? (
           <span className="rounded-full bg-amber-50 px-2 py-1 font-semibold text-amber-700">{task.progress}</span>
         ) : null}
       </div>
+      <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-600">
+        <span>重要度</span>
+        <select
+          value={priority}
+          onChange={(event) => onPriorityChange(task.id, event.target.value as Priority)}
+          className="h-8 min-w-24 rounded border border-slate-300 bg-white px-2 text-xs text-slate-700"
+        >
+          {PRIORITY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </label>
       <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{task.text}</p>
     </article>
   );
 }
 
-function loadSaved(): Array<{ id: string; lane: string; rank: number }> {
+function loadSaved(): Array<{ id: string; lane: string; rank: number; priority?: Priority }> {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
