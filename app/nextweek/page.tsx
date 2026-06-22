@@ -11,6 +11,7 @@ type Task = {
   progress?: string;
   sourceRow: number;
   lane?: string;
+  isCustom?: boolean;
 };
 
 type ApiData = {
@@ -22,12 +23,15 @@ type ApiData = {
 
 const DEFAULT_LANES = ["未整理", "月", "火", "水", "木", "金", "完了"];
 const STORAGE_KEY = "nextweek-task-board:vercel:v1";
+const CUSTOM_TASKS_KEY = "nextweek-task-board:custom-tasks:v1";
 
 export default function NextweekPage() {
   const [lanes, setLanes] = useState(DEFAULT_LANES);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [newTaskText, setNewTaskText] = useState("");
+  const [newTaskLane, setNewTaskLane] = useState("未整理");
   const [status, setStatus] = useState("読み込み中...");
   const [error, setError] = useState("");
 
@@ -57,24 +61,33 @@ export default function NextweekPage() {
       }
 
       const saved = loadSaved();
+      const customTasks = loadCustomTasks();
       const savedById = new Map(saved.map((item) => [item.id, item]));
-      const merged = data.tasks
+      const sourceTasks = [...data.tasks, ...customTasks];
+      const activeLanes = data.lanes.length ? data.lanes : DEFAULT_LANES;
+      const merged = sourceTasks
         .map((task, index) => {
           const savedItem = savedById.get(task.id);
           return {
             ...task,
-            lane: savedItem?.lane && data.lanes.includes(savedItem.lane) ? savedItem.lane : "未整理",
+            lane:
+              savedItem?.lane && activeLanes.includes(savedItem.lane)
+                ? savedItem.lane
+                : task.lane && activeLanes.includes(task.lane)
+                  ? task.lane
+                  : "未整理",
             rank: savedItem?.rank ?? index,
           };
         })
         .sort((a, b) => {
-          const laneDiff = data.lanes.indexOf(a.lane || "未整理") - data.lanes.indexOf(b.lane || "未整理");
+          const laneDiff = activeLanes.indexOf(a.lane || "未整理") - activeLanes.indexOf(b.lane || "未整理");
           return laneDiff || a.rank - b.rank || a.sourceRow - b.sourceRow;
         });
 
-      setLanes(data.lanes.length ? data.lanes : DEFAULT_LANES);
+      setLanes(activeLanes);
+      setNewTaskLane((current) => (activeLanes.includes(current) ? current : "未整理"));
       setTasks(merged);
-      setStatus(`${data.sheetName} から ${data.tasks.length} 件を読み込みました`);
+      setStatus(`${data.sheetName} から ${data.tasks.length} 件、自分用 ${customTasks.length} 件を読み込みました`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setStatus("読み込みに失敗しました");
@@ -95,6 +108,43 @@ export default function NextweekPage() {
     if (!window.confirm("自分用の並び順をリセットしますか？")) return;
     localStorage.removeItem(STORAGE_KEY);
     void loadTasks();
+  }
+
+  function addCustomTask() {
+    const text = newTaskText.trim();
+    if (!text) {
+      setStatus("追加するタスクを入力してください");
+      return;
+    }
+
+    const customTask: Task = {
+      id: `custom_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      project: "追加タスク",
+      week: "自分用",
+      title: text.length > 34 ? `${text.slice(0, 34)}...` : text,
+      text,
+      progress: "",
+      sourceRow: 0,
+      lane: newTaskLane,
+      isCustom: true,
+    };
+    const nextTasks = [...tasks, customTask];
+    const nextCustomTasks = [...loadCustomTasks(), customTask];
+    localStorage.setItem(CUSTOM_TASKS_KEY, JSON.stringify(nextCustomTasks));
+    setTasks(nextTasks);
+    setNewTaskText("");
+    saveOrder(nextTasks);
+    setStatus("自分用タスクを追加しました");
+  }
+
+  function deleteCustomTask(taskId: string) {
+    if (!window.confirm("この追加タスクを削除しますか？")) return;
+    const nextTasks = tasks.filter((task) => task.id !== taskId);
+    const nextCustomTasks = loadCustomTasks().filter((task) => task.id !== taskId);
+    localStorage.setItem(CUSTOM_TASKS_KEY, JSON.stringify(nextCustomTasks));
+    setTasks(nextTasks);
+    saveOrder(nextTasks);
+    setStatus("追加タスクを削除しました");
   }
 
   function moveTask(taskId: string, lane: string, beforeId?: string) {
@@ -142,6 +192,32 @@ export default function NextweekPage() {
 
       <section className="px-5 py-4">
         <div className={`mb-3 text-sm ${error ? "text-red-700" : "text-slate-600"}`}>{error || status}</div>
+        <div className="mb-4 flex flex-col gap-2 rounded-lg border border-[#d8dee8] bg-white p-3 shadow-sm sm:flex-row">
+          <input
+            value={newTaskText}
+            onChange={(event) => setNewTaskText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) addCustomTask();
+            }}
+            className="h-10 min-w-0 flex-1 rounded-md border border-slate-300 px-3"
+            placeholder="自分用タスクを追加"
+            type="text"
+          />
+          <select
+            value={newTaskLane}
+            onChange={(event) => setNewTaskLane(event.target.value)}
+            className="h-10 rounded-md border border-slate-300 bg-white px-3"
+          >
+            {lanes.map((lane) => (
+              <option key={lane} value={lane}>
+                {lane}
+              </option>
+            ))}
+          </select>
+          <button className="h-10 rounded-md bg-[#1e3148] px-4 font-semibold text-white" onClick={addCustomTask}>
+            追加
+          </button>
+        </div>
         <div className="grid auto-cols-[minmax(220px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-4 lg:grid-flow-row lg:grid-cols-7">
           {lanes.map((lane) => {
             const laneTasks = visibleTasks.filter((task) => (task.lane || "未整理") === lane);
@@ -153,6 +229,7 @@ export default function NextweekPage() {
                 draggingId={draggingId}
                 onDragStart={setDraggingId}
                 onDropTask={moveTask}
+                onDeleteTask={deleteCustomTask}
               />
             );
           })}
@@ -168,12 +245,14 @@ function Lane({
   draggingId,
   onDragStart,
   onDropTask,
+  onDeleteTask,
 }: {
   lane: string;
   tasks: Task[];
   draggingId: string | null;
   onDragStart: (id: string | null) => void;
   onDropTask: (taskId: string, lane: string, beforeId?: string) => void;
+  onDeleteTask: (taskId: string) => void;
 }) {
   const [over, setOver] = useState(false);
 
@@ -199,7 +278,14 @@ function Lane({
       {tasks.length === 0 ? <div className="rounded-md p-3 text-center text-sm text-slate-500">空</div> : null}
       <div className="space-y-3">
         {tasks.map((task) => (
-          <TaskCard key={task.id} task={task} lane={lane} onDragStart={onDragStart} onDropTask={onDropTask} />
+          <TaskCard
+            key={task.id}
+            task={task}
+            lane={lane}
+            onDragStart={onDragStart}
+            onDropTask={onDropTask}
+            onDeleteTask={onDeleteTask}
+          />
         ))}
       </div>
     </section>
@@ -211,11 +297,13 @@ function TaskCard({
   lane,
   onDragStart,
   onDropTask,
+  onDeleteTask,
 }: {
   task: Task;
   lane: string;
   onDragStart: (id: string | null) => void;
   onDropTask: (taskId: string, lane: string, beforeId?: string) => void;
+  onDeleteTask: (taskId: string) => void;
 }) {
   return (
     <article
@@ -236,7 +324,18 @@ function TaskCard({
         task.lane === "完了" ? "border-l-[#198754] opacity-65" : "border-l-[#5f3dc4]"
       }`}
     >
-      <h2 className="mb-2 overflow-anywhere text-sm font-bold leading-snug">{task.title}</h2>
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <h2 className="overflow-anywhere text-sm font-bold leading-snug">{task.title}</h2>
+        {task.isCustom ? (
+          <button
+            className="shrink-0 rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50"
+            onClick={() => onDeleteTask(task.id)}
+            type="button"
+          >
+            削除
+          </button>
+        ) : null}
+      </div>
       <div className="mb-2 flex flex-wrap gap-1.5 text-xs">
         <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{task.project}</span>
         <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{task.week}</span>
@@ -254,6 +353,17 @@ function loadSaved(): Array<{ id: string; lane: string; rank: number }> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadCustomTasks(): Task[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(CUSTOM_TASKS_KEY);
+    const tasks = raw ? (JSON.parse(raw) as Task[]) : [];
+    return tasks.map((task) => ({ ...task, isCustom: true }));
   } catch {
     return [];
   }
