@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Priority = "none" | "low" | "medium" | "high" | "urgent";
+type ActionKey = "reload" | "reset" | "sort" | "save" | "add" | null;
 
 type Task = {
   id: string;
@@ -80,9 +81,12 @@ export default function NextweekPage() {
   const [newTaskLane, setNewTaskLane] = useState("未整理");
   const [status, setStatus] = useState("読み込み中...");
   const [error, setError] = useState("");
+  const [activeAction, setActiveAction] = useState<ActionKey>("reload");
+  const [completedAction, setCompletedAction] = useState<ActionKey>(null);
 
   useEffect(() => {
     void loadTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const visibleTasks = useMemo(() => {
@@ -96,7 +100,9 @@ export default function NextweekPage() {
     );
   }, [query, tasks]);
 
-  async function loadTasks() {
+  async function loadTasks(feedbackAction: Exclude<ActionKey, null> = "reload") {
+    setActiveAction(feedbackAction);
+    setCompletedAction(null);
     setStatus("読み込み中...");
     setError("");
     try {
@@ -135,9 +141,12 @@ export default function NextweekPage() {
       setNewTaskLane((current) => (activeLanes.includes(current) ? current : "未整理"));
       setTasks(merged);
       setStatus(`${data.sheetName} から ${data.tasks.length} 件、自分用 ${customTasks.length} 件を読み込みました`);
+      flashCompleted(feedbackAction);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setStatus("読み込みに失敗しました");
+    } finally {
+      setActiveAction(null);
     }
   }
 
@@ -150,12 +159,14 @@ export default function NextweekPage() {
     }));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     setStatus(`${payload.length} 件の並び順を保存しました`);
+    flashCompleted("save");
   }
 
   function resetOrder() {
     if (!window.confirm("自分用の並び順をリセットしますか？")) return;
+    setActiveAction("reset");
     localStorage.removeItem(STORAGE_KEY);
-    void loadTasks();
+    void loadTasks("reset");
   }
 
   function addCustomTask() {
@@ -184,6 +195,7 @@ export default function NextweekPage() {
     setNewTaskText("");
     saveOrder(nextTasks);
     setStatus("自分用タスクを追加しました");
+    flashCompleted("add");
   }
 
   function deleteCustomTask(taskId: string) {
@@ -234,6 +246,14 @@ export default function NextweekPage() {
     setTasks(nextTasks);
     saveOrder(nextTasks);
     setStatus("各レーン内を重要度が高い順に並び替えました");
+    flashCompleted("sort");
+  }
+
+  function flashCompleted(action: Exclude<ActionKey, null>) {
+    setCompletedAction(action);
+    window.setTimeout(() => {
+      setCompletedAction((current) => (current === action ? null : current));
+    }, 1400);
   }
 
   return (
@@ -251,18 +271,43 @@ export default function NextweekPage() {
             placeholder="検索"
             type="search"
           />
-          <button className="h-10 rounded-md bg-white px-4 font-semibold text-[#17202a]" onClick={() => void loadTasks()}>
-            再読み込み
-          </button>
-          <button className="h-10 rounded-md bg-white px-4 font-semibold text-[#17202a]" onClick={resetOrder}>
-            リセット
-          </button>
-          <button className="h-10 rounded-md bg-white px-4 font-semibold text-[#17202a]" onClick={sortByPriority}>
-            優先度順
-          </button>
-          <button className="h-10 rounded-md bg-[#dbeafe] px-4 font-semibold text-[#1d4ed8]" onClick={() => saveOrder()}>
-            保存
-          </button>
+          <ActionButton
+            action="reload"
+            activeAction={activeAction}
+            completedAction={completedAction}
+            completedLabel="再読込済み"
+            label="再読み込み"
+            loadingLabel="読込中..."
+            onClick={() => void loadTasks()}
+          />
+          <ActionButton
+            action="reset"
+            activeAction={activeAction}
+            completedAction={completedAction}
+            completedLabel="リセット済み"
+            label="リセット"
+            loadingLabel="リセット中..."
+            onClick={resetOrder}
+          />
+          <ActionButton
+            action="sort"
+            activeAction={activeAction}
+            completedAction={completedAction}
+            completedLabel="並替済み"
+            label="優先度順"
+            loadingLabel="並替中..."
+            onClick={sortByPriority}
+          />
+          <ActionButton
+            action="save"
+            activeAction={activeAction}
+            completedAction={completedAction}
+            completedLabel="保存済み"
+            label="保存"
+            loadingLabel="保存中..."
+            onClick={() => saveOrder()}
+            variant="primary"
+          />
         </div>
       </header>
 
@@ -290,9 +335,16 @@ export default function NextweekPage() {
               </option>
             ))}
           </select>
-          <button className="h-10 rounded-md bg-[#1e3148] px-4 font-semibold text-white" onClick={addCustomTask}>
-            追加
-          </button>
+          <ActionButton
+            action="add"
+            activeAction={activeAction}
+            completedAction={completedAction}
+            completedLabel="追加済み"
+            label="追加"
+            loadingLabel="追加中..."
+            onClick={addCustomTask}
+            variant="dark"
+          />
         </div>
         <div className="grid auto-cols-[minmax(220px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-4 lg:grid-flow-row lg:grid-cols-7">
           {lanes.map((lane) => {
@@ -313,6 +365,51 @@ export default function NextweekPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function ActionButton({
+  action,
+  activeAction,
+  completedAction,
+  completedLabel,
+  label,
+  loadingLabel,
+  onClick,
+  variant = "secondary",
+}: {
+  action: Exclude<ActionKey, null>;
+  activeAction: ActionKey;
+  completedAction: ActionKey;
+  completedLabel: string;
+  label: string;
+  loadingLabel: string;
+  onClick: () => void;
+  variant?: "secondary" | "primary" | "dark";
+}) {
+  const isActive = activeAction === action;
+  const isCompleted = completedAction === action;
+  const variantClass =
+    variant === "primary"
+      ? "border-[#93c5fd] bg-[#dbeafe] text-[#1d4ed8] hover:bg-[#bfdbfe]"
+      : variant === "dark"
+        ? "border-[#1e3148] bg-[#1e3148] text-white hover:bg-[#17263a]"
+        : "border-slate-300 bg-white text-[#17202a] hover:bg-slate-100";
+  const stateClass = isCompleted
+    ? "border-emerald-500 bg-emerald-100 text-emerald-800 shadow-[inset_0_0_0_1px_#10b981]"
+    : isActive
+      ? "translate-y-px scale-[0.98] border-blue-500 bg-blue-100 text-blue-900 shadow-inner"
+      : `${variantClass} shadow-sm`;
+
+  return (
+    <button
+      className={`h-10 rounded-md border px-4 font-semibold transition-all duration-150 active:translate-y-px active:scale-[0.98] active:shadow-inner disabled:cursor-wait ${stateClass}`}
+      disabled={isActive}
+      onClick={onClick}
+      type="button"
+    >
+      {isActive ? loadingLabel : isCompleted ? completedLabel : label}
+    </button>
   );
 }
 
