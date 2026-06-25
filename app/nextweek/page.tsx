@@ -489,12 +489,6 @@ function TaskCard({
 
   return (
     <article
-      draggable
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", task.id);
-        onDragStart(task.id);
-      }}
       onDragEnd={() => onDragStart(null)}
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => {
@@ -502,21 +496,37 @@ function TaskCard({
         const taskId = event.dataTransfer.getData("text/plain");
         if (taskId && taskId !== task.id) onDropTask(taskId, lane, task.id);
       }}
-      className={`cursor-grab rounded-lg border border-[#dfe5ee] border-l-4 p-3 shadow-sm active:cursor-grabbing ${
+      className={`rounded-lg border border-[#dfe5ee] border-l-4 p-3 shadow-sm ${
         task.lane === "完了" ? `${priorityStyle.card} opacity-65` : priorityStyle.card
       }`}
     >
       <div className="mb-2 flex items-start justify-between gap-2">
-        <h2 className="overflow-anywhere text-sm font-bold leading-snug">{task.title}</h2>
-        {task.isCustom ? (
+        <h2 className="overflow-anywhere min-w-0 select-text text-sm font-bold leading-snug">{task.title}</h2>
+        <div className="flex shrink-0 items-center gap-1">
           <button
-            className="shrink-0 rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50"
-            onClick={() => onDeleteTask(task.id)}
+            aria-label="タスクを移動"
+            className="h-7 w-7 cursor-grab rounded border border-slate-200 text-sm font-bold leading-none text-slate-500 hover:bg-slate-50 active:cursor-grabbing"
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("text/plain", task.id);
+              onDragStart(task.id);
+            }}
             type="button"
+            title="ドラッグして移動"
           >
-            削除
+            ::
           </button>
-        ) : null}
+          {task.isCustom ? (
+            <button
+              className="rounded border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50"
+              onClick={() => onDeleteTask(task.id)}
+              type="button"
+            >
+              削除
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="mb-2 flex flex-wrap gap-1.5 text-xs">
         <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-700">{task.project}</span>
@@ -544,7 +554,7 @@ function TaskCard({
           ))}
         </select>
       </label>
-      <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{task.text}</p>
+      <p className="select-text whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{task.text}</p>
     </article>
   );
 }
