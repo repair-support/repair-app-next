@@ -25,7 +25,7 @@ type ApiData = {
   tasks: Task[];
 };
 
-const DEFAULT_LANES = ["未整理", "月", "火", "水", "木", "金", "完了"];
+const DEFAULT_LANES = ["未整理", "月", "火", "水", "木", "金", "土", "日", "完了"];
 const STORAGE_KEY = "nextweek-task-board:vercel:v1";
 const CUSTOM_TASKS_KEY = "nextweek-task-board:custom-tasks:v1";
 const PRIORITY_OPTIONS: Array<{ value: Priority; label: string }> = [
@@ -116,7 +116,7 @@ export default function NextweekPage() {
       const customTasks = loadCustomTasks();
       const savedById = new Map(saved.map((item) => [item.id, item]));
       const sourceTasks = [...data.tasks, ...customTasks];
-      const activeLanes = data.lanes.length ? data.lanes : DEFAULT_LANES;
+      const activeLanes = normalizeLanes(data.lanes);
       const merged = sourceTasks
         .map((task, index) => {
           const savedItem = savedById.get(task.id);
@@ -346,7 +346,7 @@ export default function NextweekPage() {
             variant="dark"
           />
         </div>
-        <div className="grid auto-cols-[minmax(220px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-4 lg:grid-flow-row lg:grid-cols-7">
+        <div className="grid auto-cols-[minmax(220px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-4 xl:grid-flow-row xl:grid-cols-9">
           {lanes.map((lane) => {
             const laneTasks = visibleTasks.filter((task) => (task.lane || "未整理") === lane);
             return (
@@ -567,6 +567,13 @@ function loadSaved(): Array<{ id: string; lane: string; rank: number; priority?:
   } catch {
     return [];
   }
+}
+
+function normalizeLanes(sourceLanes: string[]) {
+  const sourceSet = new Set([...DEFAULT_LANES, ...sourceLanes]);
+  const orderedDefaultLanes = DEFAULT_LANES.filter((lane) => sourceSet.has(lane));
+  const extraLanes = sourceLanes.filter((lane) => !DEFAULT_LANES.includes(lane));
+  return [...orderedDefaultLanes, ...extraLanes];
 }
 
 function loadCustomTasks(): Task[] {
