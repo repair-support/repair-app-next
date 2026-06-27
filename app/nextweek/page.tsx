@@ -367,7 +367,7 @@ export default function NextweekPage() {
             variant="dark"
           />
         </div>
-        <div className="grid auto-cols-[minmax(220px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-4 xl:grid-flow-row xl:grid-cols-9">
+        <div className="grid auto-cols-[minmax(300px,340px)] grid-flow-col gap-3 overflow-x-auto pb-4">
           {lanes.map((lane) => {
             const laneTasks = visibleTasks.filter((task) => (task.lane || "未整理") === lane);
             return (
@@ -528,9 +528,9 @@ function TaskCard({
         task.lane === "完了" ? `${priorityStyle.card} opacity-65` : priorityStyle.card
       }`}
     >
-      <div className="mb-2 flex items-start justify-between gap-2">
+      <div className="mb-2 flex flex-col gap-2">
         <h2 className="overflow-anywhere min-w-0 select-text text-sm font-bold leading-snug">{task.title}</h2>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           {!isCompleted ? (
             <button
               className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
