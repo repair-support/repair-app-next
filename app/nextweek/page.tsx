@@ -17,6 +17,10 @@ type Task = {
   isCustom?: boolean;
   priority?: Priority;
   completedAt?: string;
+  completionNote?: string;
+  dueDate?: string;
+  nextAction?: string;
+  carriedAt?: string;
 };
 
 type ApiData = {
@@ -26,7 +30,9 @@ type ApiData = {
   tasks: Task[];
 };
 
-const DEFAULT_LANES = ["未整理", "月", "火", "水", "木", "金", "土", "日", "完了"];
+const TODAY_LANE = "今日やる";
+const DONE_LANE = "完了";
+const DEFAULT_LANES = ["未整理", TODAY_LANE, "月", "火", "水", "木", "金", "土", "日", DONE_LANE];
 const STORAGE_KEY = "nextweek-task-board:vercel:v1";
 const CUSTOM_TASKS_KEY = "nextweek-task-board:custom-tasks:v1";
 const PRIORITY_OPTIONS: Array<{ value: Priority; label: string }> = [
@@ -84,6 +90,7 @@ export default function NextweekPage() {
   const [error, setError] = useState("");
   const [activeAction, setActiveAction] = useState<ActionKey>("reload");
   const [completedAction, setCompletedAction] = useState<ActionKey>(null);
+  const [showCompletionHistory, setShowCompletionHistory] = useState(false);
 
   useEffect(() => {
     void loadTasks();
@@ -94,12 +101,33 @@ export default function NextweekPage() {
     const needle = query.trim().toLowerCase();
     if (!needle) return tasks;
     return tasks.filter((task) =>
-      [task.project, task.week, task.title, task.text, task.progress, task.completedAt]
+      [
+        task.project,
+        task.week,
+        task.title,
+        task.text,
+        task.progress,
+        task.completedAt,
+        task.completionNote,
+        task.dueDate,
+        task.nextAction,
+      ]
         .join(" ")
         .toLowerCase()
         .includes(needle),
     );
   }, [query, tasks]);
+
+  const completedTasks = useMemo(
+    () =>
+      tasks
+        .filter((task) => task.completedAt)
+        .sort((a, b) => {
+          const dateDiff = (b.completedAt || "").localeCompare(a.completedAt || "");
+          return dateDiff || a.title.localeCompare(b.title, "ja");
+        }),
+    [tasks],
+  );
 
   async function loadTasks(feedbackAction: Exclude<ActionKey, null> = "reload") {
     setActiveAction(feedbackAction);
@@ -131,6 +159,10 @@ export default function NextweekPage() {
                   : "未整理",
             priority: savedItem?.priority || task.priority || "none",
             completedAt: savedItem?.completedAt || task.completedAt,
+            completionNote: savedItem?.completionNote || task.completionNote,
+            dueDate: savedItem?.dueDate || task.dueDate,
+            nextAction: savedItem?.nextAction || task.nextAction,
+            carriedAt: savedItem?.carriedAt || task.carriedAt,
             rank: savedItem?.rank ?? index,
           };
         })
@@ -159,6 +191,10 @@ export default function NextweekPage() {
       rank: index,
       priority: task.priority || "none",
       completedAt: task.completedAt,
+      completionNote: task.completionNote,
+      dueDate: task.dueDate,
+      nextAction: task.nextAction,
+      carriedAt: task.carriedAt,
     }));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     setStatus(`${payload.length} 件の並び順を保存しました`);
@@ -235,22 +271,97 @@ export default function NextweekPage() {
     saveOrder(nextTasks);
   }
 
+  function updateTaskDetails(taskId: string, patch: Partial<Pick<Task, "dueDate" | "nextAction" | "completionNote">>) {
+    const nextTasks = tasks.map((task) => (task.id === taskId ? { ...task, ...patch } : task));
+    const nextCustomTasks = loadCustomTasks().map((task) => (task.id === taskId ? { ...task, ...patch } : task));
+    localStorage.setItem(CUSTOM_TASKS_KEY, JSON.stringify(nextCustomTasks));
+    setTasks(nextTasks);
+    saveOrder(nextTasks);
+  }
+
   function completeTask(taskId: string) {
     const task = tasks.find((item) => item.id === taskId);
     if (!task) return;
 
     const completedAt = todayLocalDate();
+    const completionNote = window.prompt("完了メモを残しますか？（空欄でもOK）", task.completionNote || "")?.trim();
     const withoutTask = tasks.filter((item) => item.id !== taskId);
-    const completedTask = { ...task, lane: "完了", completedAt };
+    const completedTask = { ...task, lane: DONE_LANE, completedAt, completionNote: completionNote || task.completionNote };
     const nextTasks = [...withoutTask, completedTask];
     const nextCustomTasks = loadCustomTasks().map((item) =>
-      item.id === taskId ? { ...item, lane: "完了", completedAt } : item,
+      item.id === taskId ? { ...item, lane: DONE_LANE, completedAt, completionNote: completionNote || item.completionNote } : item,
     );
 
     localStorage.setItem(CUSTOM_TASKS_KEY, JSON.stringify(nextCustomTasks));
     setTasks(nextTasks);
     saveOrder(nextTasks);
     setStatus(`「${task.title}」を完了にしました`);
+  }
+
+  function carryTask(taskId: string) {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) return;
+
+    const carriedAt = todayLocalDate();
+    const nextTasks = tasks.map((item) =>
+      item.id === taskId ? { ...item, lane: TODAY_LANE, carriedAt, completedAt: undefined, completionNote: undefined } : item,
+    );
+    const nextCustomTasks = loadCustomTasks().map((item) =>
+      item.id === taskId ? { ...item, lane: TODAY_LANE, carriedAt, completedAt: undefined, completionNote: undefined } : item,
+    );
+    localStorage.setItem(CUSTOM_TASKS_KEY, JSON.stringify(nextCustomTasks));
+    setTasks(nextTasks);
+    saveOrder(nextTasks);
+    setStatus(`「${task.title}」を${TODAY_LANE}に持ち越しました`);
+  }
+
+  async function copyTaskReport(kind: "open" | "completed") {
+    const targetTasks =
+      kind === "completed" ? completedTasks : tasks.filter((task) => (task.lane || "未整理") !== DONE_LANE);
+    const text = targetTasks
+      .map((task) => {
+        const parts = [
+          task.completedAt ? `完了日:${formatCompletionDate(task.completedAt)}` : null,
+          task.dueDate ? `期限:${formatCompletionDate(task.dueDate)}` : null,
+          task.nextAction ? `次:${task.nextAction}` : null,
+          task.completionNote ? `メモ:${task.completionNote}` : null,
+        ].filter(Boolean);
+        return `- [${task.lane || "未整理"}] ${task.title}${parts.length ? ` (${parts.join(" / ")})` : ""}`;
+      })
+      .join("\n");
+
+    await navigator.clipboard.writeText(text || "対象タスクはありません");
+    setStatus(kind === "completed" ? "完了履歴をコピーしました" : "未完了タスクをコピーしました");
+  }
+
+  function downloadCsv(kind: "open" | "completed") {
+    const targetTasks =
+      kind === "completed" ? completedTasks : tasks.filter((task) => (task.lane || "未整理") !== DONE_LANE);
+    const rows = [
+      ["レーン", "タイトル", "プロジェクト", "週", "重要度", "進捗", "期限日", "次アクション", "完了日", "完了メモ", "本文"],
+      ...targetTasks.map((task) => [
+        task.lane || "未整理",
+        task.title,
+        task.project,
+        task.week,
+        task.priority || "none",
+        task.progress || "",
+        task.dueDate || "",
+        task.nextAction || "",
+        task.completedAt || "",
+        task.completionNote || "",
+        task.text,
+      ]),
+    ];
+    const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+    const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `nextweek-${kind}-${todayLocalDate()}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setStatus(kind === "completed" ? "完了履歴CSVを出力しました" : "未完了タスクCSVを出力しました");
   }
 
   function sortByPriority() {
@@ -329,11 +440,49 @@ export default function NextweekPage() {
             onClick={() => saveOrder()}
             variant="primary"
           />
+          <button
+            className="h-10 rounded-md border border-slate-300 bg-white px-4 font-semibold text-[#17202a] shadow-sm hover:bg-slate-100"
+            onClick={() => setShowCompletionHistory((current) => !current)}
+            type="button"
+          >
+            完了履歴
+          </button>
         </div>
       </header>
 
       <section className="px-5 py-4">
         <div className={`mb-3 text-sm ${error ? "text-red-700" : "text-slate-600"}`}>{error || status}</div>
+        <div className="mb-3 flex flex-wrap gap-2">
+          <button
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+            onClick={() => void copyTaskReport("open")}
+            type="button"
+          >
+            未完了一覧をコピー
+          </button>
+          <button
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+            onClick={() => downloadCsv("open")}
+            type="button"
+          >
+            未完了CSV
+          </button>
+          <button
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+            onClick={() => void copyTaskReport("completed")}
+            type="button"
+          >
+            完了履歴をコピー
+          </button>
+          <button
+            className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+            onClick={() => downloadCsv("completed")}
+            type="button"
+          >
+            完了CSV
+          </button>
+        </div>
+        {showCompletionHistory ? <CompletionHistory tasks={completedTasks} /> : null}
         <div className="mb-4 flex flex-col gap-2 rounded-lg border border-[#d8dee8] bg-white p-3 shadow-sm sm:flex-row">
           <input
             value={newTaskText}
@@ -381,6 +530,8 @@ export default function NextweekPage() {
                 onDeleteTask={deleteCustomTask}
                 onPriorityChange={updatePriority}
                 onCompleteTask={completeTask}
+                onCarryTask={carryTask}
+                onDetailsChange={updateTaskDetails}
               />
             );
           })}
@@ -435,6 +586,48 @@ function ActionButton({
   );
 }
 
+function CompletionHistory({ tasks }: { tasks: Task[] }) {
+  return (
+    <section className="mb-4 rounded-lg border border-[#d8dee8] bg-white p-3 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-bold text-slate-800">完了履歴</h2>
+        <span className="text-xs font-semibold text-slate-500">{tasks.length}件</span>
+      </div>
+      {tasks.length === 0 ? (
+        <div className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">完了したタスクはまだありません</div>
+      ) : (
+        <div className="max-h-72 overflow-auto">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead className="sticky top-0 bg-white text-xs text-slate-500">
+              <tr>
+                <th className="border-b border-slate-200 px-2 py-2">完了日</th>
+                <th className="border-b border-slate-200 px-2 py-2">タスク</th>
+                <th className="border-b border-slate-200 px-2 py-2">メモ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tasks.map((task) => (
+                <tr key={task.id}>
+                  <td className="whitespace-nowrap border-b border-slate-100 px-2 py-2 text-xs font-semibold text-emerald-700">
+                    {task.completedAt ? formatCompletionDate(task.completedAt) : ""}
+                  </td>
+                  <td className="border-b border-slate-100 px-2 py-2">
+                    <div className="font-semibold text-slate-800">{task.title}</div>
+                    <div className="mt-1 text-xs text-slate-500">{task.project}</div>
+                  </td>
+                  <td className="border-b border-slate-100 px-2 py-2 text-xs text-slate-600">
+                    {task.completionNote || "-"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Lane({
   lane,
   tasks,
@@ -444,6 +637,8 @@ function Lane({
   onDeleteTask,
   onPriorityChange,
   onCompleteTask,
+  onCarryTask,
+  onDetailsChange,
 }: {
   lane: string;
   tasks: Task[];
@@ -453,12 +648,21 @@ function Lane({
   onDeleteTask: (taskId: string) => void;
   onPriorityChange: (taskId: string, priority: Priority) => void;
   onCompleteTask: (taskId: string) => void;
+  onCarryTask: (taskId: string) => void;
+  onDetailsChange: (taskId: string, patch: Partial<Pick<Task, "dueDate" | "nextAction" | "completionNote">>) => void;
 }) {
   const [over, setOver] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [showAllCompleted, setShowAllCompleted] = useState(false);
+  const isEmpty = tasks.length === 0;
+  const isDoneLane = lane === DONE_LANE;
+  const visibleLaneTasks = isDoneLane && !showAllCompleted ? tasks.slice(0, 5) : tasks;
 
   return (
     <section
-      className={`min-h-[70vh] rounded-lg border border-[#d8dee8] bg-[#eef2f6] p-3 ${over ? "outline outline-2 outline-blue-500" : ""}`}
+      className={`min-h-[70vh] rounded-lg border border-[#d8dee8] bg-[#eef2f6] p-3 ${collapsed ? "min-h-0" : ""} ${
+        over ? "outline outline-2 outline-blue-500" : ""
+      }`}
       onDragOver={(event) => {
         event.preventDefault();
         setOver(true);
@@ -473,11 +677,31 @@ function Lane({
     >
       <div className="mb-3 flex items-center justify-between text-sm font-bold">
         <span>{lane}</span>
-        <span className="text-xs font-semibold text-slate-500">{tasks.length}</span>
+        <div className="flex items-center gap-2">
+          {isEmpty ? (
+            <button
+              className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100"
+              onClick={() => setCollapsed((current) => !current)}
+              type="button"
+            >
+              {collapsed ? "表示" : "畳む"}
+            </button>
+          ) : null}
+          <span className="text-xs font-semibold text-slate-500">{tasks.length}</span>
+        </div>
       </div>
-      {tasks.length === 0 ? <div className="rounded-md p-3 text-center text-sm text-slate-500">空</div> : null}
+      {collapsed ? null : isEmpty ? <div className="rounded-md p-3 text-center text-sm text-slate-500">空</div> : null}
+      {isDoneLane && tasks.length > 5 ? (
+        <button
+          className="mb-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+          onClick={() => setShowAllCompleted((current) => !current)}
+          type="button"
+        >
+          {showAllCompleted ? "完了を最新5件だけ表示" : `完了をすべて表示 (${tasks.length}件)`}
+        </button>
+      ) : null}
       <div className="space-y-3">
-        {tasks.map((task) => (
+        {visibleLaneTasks.map((task) => (
           <TaskCard
             key={task.id}
             task={task}
@@ -487,6 +711,8 @@ function Lane({
             onDeleteTask={onDeleteTask}
             onPriorityChange={onPriorityChange}
             onCompleteTask={onCompleteTask}
+            onCarryTask={onCarryTask}
+            onDetailsChange={onDetailsChange}
           />
         ))}
       </div>
@@ -502,6 +728,8 @@ function TaskCard({
   onDeleteTask,
   onPriorityChange,
   onCompleteTask,
+  onCarryTask,
+  onDetailsChange,
 }: {
   task: Task;
   lane: string;
@@ -510,10 +738,16 @@ function TaskCard({
   onDeleteTask: (taskId: string) => void;
   onPriorityChange: (taskId: string, priority: Priority) => void;
   onCompleteTask: (taskId: string) => void;
+  onCarryTask: (taskId: string) => void;
+  onDetailsChange: (taskId: string, patch: Partial<Pick<Task, "dueDate" | "nextAction" | "completionNote">>) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const priority = task.priority || "none";
-  const priorityStyle = task.lane === "完了" ? PRIORITY_STYLES.low : PRIORITY_STYLES[priority];
-  const isCompleted = task.lane === "完了";
+  const priorityStyle = task.lane === DONE_LANE ? PRIORITY_STYLES.low : PRIORITY_STYLES[priority];
+  const isCompleted = task.lane === DONE_LANE;
+  const textIsLong = task.text.length > 130 || task.text.split("\n").length > 4;
+  const displayText = !expanded && textIsLong ? `${task.text.slice(0, 130)}...` : task.text;
+  const dueState = task.dueDate ? dueDateState(task.dueDate) : null;
 
   return (
     <article
@@ -525,7 +759,7 @@ function TaskCard({
         if (taskId && taskId !== task.id) onDropTask(taskId, lane, task.id);
       }}
       className={`rounded-lg border border-[#dfe5ee] border-l-4 p-3 shadow-sm ${
-        task.lane === "完了" ? `${priorityStyle.card} opacity-65` : priorityStyle.card
+        task.lane === DONE_LANE ? `${priorityStyle.card} opacity-65` : priorityStyle.card
       }`}
     >
       <div className="mb-2 flex flex-col gap-2">
@@ -538,6 +772,15 @@ function TaskCard({
               type="button"
             >
               完了
+            </button>
+          ) : null}
+          {!isCompleted ? (
+            <button
+              className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+              onClick={() => onCarryTask(task.id)}
+              type="button"
+            >
+              今日やる
             </button>
           ) : null}
           <button
@@ -581,7 +824,63 @@ function TaskCard({
             完了日: {formatCompletionDate(task.completedAt)}
           </span>
         ) : null}
+        {task.dueDate ? (
+          <span
+            className={`rounded-full px-2 py-1 font-semibold ${
+              dueState === "overdue"
+                ? "bg-red-100 text-red-800"
+                : dueState === "today"
+                  ? "bg-blue-100 text-blue-800"
+                  : "bg-slate-100 text-slate-700"
+            }`}
+          >
+            期限: {formatCompletionDate(task.dueDate)}
+          </span>
+        ) : null}
+        {task.carriedAt ? (
+          <span className="rounded-full bg-blue-50 px-2 py-1 font-semibold text-blue-700">
+            持ち越し: {formatCompletionDate(task.carriedAt)}
+          </span>
+        ) : null}
       </div>
+      <div className="mb-2 grid gap-2 text-xs sm:grid-cols-2">
+        <label className="font-semibold text-slate-600">
+          <span className="mb-1 block">期限日</span>
+          <input
+            className="h-8 w-full rounded border border-slate-300 bg-white px-2 text-xs text-slate-700"
+            onChange={(event) => onDetailsChange(task.id, { dueDate: event.target.value || undefined })}
+            type="date"
+            value={task.dueDate || ""}
+          />
+        </label>
+        <label className="font-semibold text-slate-600">
+          <span className="mb-1 block">次アクション</span>
+          <input
+            className="h-8 w-full rounded border border-slate-300 bg-white px-2 text-xs text-slate-700"
+            defaultValue={task.nextAction || ""}
+            onBlur={(event) => onDetailsChange(task.id, { nextAction: event.target.value.trim() || undefined })}
+            placeholder="次にやること"
+            type="text"
+          />
+        </label>
+      </div>
+      {task.nextAction ? (
+        <p className="mb-2 rounded-md bg-blue-50 px-2 py-1.5 text-xs font-semibold leading-relaxed text-blue-800">
+          次: {task.nextAction}
+        </p>
+      ) : null}
+      {isCompleted ? (
+        <label className="mb-2 block text-xs font-semibold text-slate-600">
+          <span className="mb-1 block">完了メモ</span>
+          <input
+            className="h-8 w-full rounded border border-slate-300 bg-white px-2 text-xs text-slate-700"
+            defaultValue={task.completionNote || ""}
+            onBlur={(event) => onDetailsChange(task.id, { completionNote: event.target.value.trim() || undefined })}
+            placeholder="完了時のメモ"
+            type="text"
+          />
+        </label>
+      ) : null}
       <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-600">
         <span>重要度</span>
         <select
@@ -596,12 +895,31 @@ function TaskCard({
           ))}
         </select>
       </label>
-      <p className="select-text whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{task.text}</p>
+      <p className="select-text whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{displayText}</p>
+      {textIsLong ? (
+        <button
+          className="mt-2 text-xs font-semibold text-blue-700 hover:underline"
+          onClick={() => setExpanded((current) => !current)}
+          type="button"
+        >
+          {expanded ? "閉じる" : "もっと見る"}
+        </button>
+      ) : null}
     </article>
   );
 }
 
-function loadSaved(): Array<{ id: string; lane: string; rank: number; priority?: Priority; completedAt?: string }> {
+function loadSaved(): Array<{
+  id: string;
+  lane: string;
+  rank: number;
+  priority?: Priority;
+  completedAt?: string;
+  completionNote?: string;
+  dueDate?: string;
+  nextAction?: string;
+  carriedAt?: string;
+}> {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -623,6 +941,17 @@ function formatCompletionDate(value: string) {
   const [year, month, day] = value.split("-");
   if (!year || !month || !day) return value;
   return `${year}/${month}/${day}`;
+}
+
+function dueDateState(value: string) {
+  const today = todayLocalDate();
+  if (value < today) return "overdue";
+  if (value === today) return "today";
+  return "upcoming";
+}
+
+function csvCell(value: string) {
+  return `"${value.replace(/"/g, '""').replace(/\r?\n/g, "\n")}"`;
 }
 
 function normalizeLanes(sourceLanes: string[]) {
