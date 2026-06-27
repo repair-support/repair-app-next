@@ -16,6 +16,7 @@ type Task = {
   lane?: string;
   isCustom?: boolean;
   priority?: Priority;
+  completedAt?: string;
 };
 
 type ApiData = {
@@ -93,7 +94,7 @@ export default function NextweekPage() {
     const needle = query.trim().toLowerCase();
     if (!needle) return tasks;
     return tasks.filter((task) =>
-      [task.project, task.week, task.title, task.text, task.progress]
+      [task.project, task.week, task.title, task.text, task.progress, task.completedAt]
         .join(" ")
         .toLowerCase()
         .includes(needle),
@@ -129,6 +130,7 @@ export default function NextweekPage() {
                   ? task.lane
                   : "未整理",
             priority: savedItem?.priority || task.priority || "none",
+            completedAt: savedItem?.completedAt || task.completedAt,
             rank: savedItem?.rank ?? index,
           };
         })
@@ -156,6 +158,7 @@ export default function NextweekPage() {
       lane: task.lane || "未整理",
       rank: index,
       priority: task.priority || "none",
+      completedAt: task.completedAt,
     }));
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
     setStatus(`${payload.length} 件の並び順を保存しました`);
@@ -230,6 +233,24 @@ export default function NextweekPage() {
     localStorage.setItem(CUSTOM_TASKS_KEY, JSON.stringify(nextCustomTasks));
     setTasks(nextTasks);
     saveOrder(nextTasks);
+  }
+
+  function completeTask(taskId: string) {
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) return;
+
+    const completedAt = todayLocalDate();
+    const withoutTask = tasks.filter((item) => item.id !== taskId);
+    const completedTask = { ...task, lane: "完了", completedAt };
+    const nextTasks = [...withoutTask, completedTask];
+    const nextCustomTasks = loadCustomTasks().map((item) =>
+      item.id === taskId ? { ...item, lane: "完了", completedAt } : item,
+    );
+
+    localStorage.setItem(CUSTOM_TASKS_KEY, JSON.stringify(nextCustomTasks));
+    setTasks(nextTasks);
+    saveOrder(nextTasks);
+    setStatus(`「${task.title}」を完了にしました`);
   }
 
   function sortByPriority() {
@@ -359,6 +380,7 @@ export default function NextweekPage() {
                 onDropTask={moveTask}
                 onDeleteTask={deleteCustomTask}
                 onPriorityChange={updatePriority}
+                onCompleteTask={completeTask}
               />
             );
           })}
@@ -421,6 +443,7 @@ function Lane({
   onDropTask,
   onDeleteTask,
   onPriorityChange,
+  onCompleteTask,
 }: {
   lane: string;
   tasks: Task[];
@@ -429,6 +452,7 @@ function Lane({
   onDropTask: (taskId: string, lane: string, beforeId?: string) => void;
   onDeleteTask: (taskId: string) => void;
   onPriorityChange: (taskId: string, priority: Priority) => void;
+  onCompleteTask: (taskId: string) => void;
 }) {
   const [over, setOver] = useState(false);
 
@@ -462,6 +486,7 @@ function Lane({
             onDropTask={onDropTask}
             onDeleteTask={onDeleteTask}
             onPriorityChange={onPriorityChange}
+            onCompleteTask={onCompleteTask}
           />
         ))}
       </div>
@@ -476,6 +501,7 @@ function TaskCard({
   onDropTask,
   onDeleteTask,
   onPriorityChange,
+  onCompleteTask,
 }: {
   task: Task;
   lane: string;
@@ -483,9 +509,11 @@ function TaskCard({
   onDropTask: (taskId: string, lane: string, beforeId?: string) => void;
   onDeleteTask: (taskId: string) => void;
   onPriorityChange: (taskId: string, priority: Priority) => void;
+  onCompleteTask: (taskId: string) => void;
 }) {
   const priority = task.priority || "none";
   const priorityStyle = task.lane === "完了" ? PRIORITY_STYLES.low : PRIORITY_STYLES[priority];
+  const isCompleted = task.lane === "完了";
 
   return (
     <article
@@ -503,6 +531,15 @@ function TaskCard({
       <div className="mb-2 flex items-start justify-between gap-2">
         <h2 className="overflow-anywhere min-w-0 select-text text-sm font-bold leading-snug">{task.title}</h2>
         <div className="flex shrink-0 items-center gap-1">
+          {!isCompleted ? (
+            <button
+              className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100"
+              onClick={() => onCompleteTask(task.id)}
+              type="button"
+            >
+              完了
+            </button>
+          ) : null}
           <button
             aria-label="タスクを移動"
             className="h-7 w-7 cursor-grab rounded border border-slate-200 text-sm font-bold leading-none text-slate-500 hover:bg-slate-50 active:cursor-grabbing"
@@ -539,6 +576,11 @@ function TaskCard({
         {task.progress ? (
           <span className="rounded-full bg-amber-50 px-2 py-1 font-semibold text-amber-700">{task.progress}</span>
         ) : null}
+        {task.completedAt ? (
+          <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-800">
+            完了日: {formatCompletionDate(task.completedAt)}
+          </span>
+        ) : null}
       </div>
       <label className="mb-2 flex items-center gap-2 text-xs font-semibold text-slate-600">
         <span>重要度</span>
@@ -559,7 +601,7 @@ function TaskCard({
   );
 }
 
-function loadSaved(): Array<{ id: string; lane: string; rank: number; priority?: Priority }> {
+function loadSaved(): Array<{ id: string; lane: string; rank: number; priority?: Priority; completedAt?: string }> {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -567,6 +609,20 @@ function loadSaved(): Array<{ id: string; lane: string; rank: number; priority?:
   } catch {
     return [];
   }
+}
+
+function todayLocalDate() {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatCompletionDate(value: string) {
+  const [year, month, day] = value.split("-");
+  if (!year || !month || !day) return value;
+  return `${year}/${month}/${day}`;
 }
 
 function normalizeLanes(sourceLanes: string[]) {
