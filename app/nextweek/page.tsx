@@ -35,6 +35,8 @@ const DONE_LANE = "完了";
 const DEFAULT_LANES = ["未整理", TODAY_LANE, "月", "火", "水", "木", "金", "土", "日", DONE_LANE];
 const STORAGE_KEY = "nextweek-task-board:vercel:v1";
 const CUSTOM_TASKS_KEY = "nextweek-task-board:custom-tasks:v1";
+const OFF_DAYS_KEY = "nextweek-task-board:off-days:v1";
+const WEEKDAY_LANES = ["月", "火", "水", "木", "金", "土", "日"];
 const PRIORITY_OPTIONS: Array<{ value: Priority; label: string }> = [
   { value: "none", label: "重要度なし" },
   { value: "low", label: "低" },
@@ -91,8 +93,10 @@ export default function NextweekPage() {
   const [activeAction, setActiveAction] = useState<ActionKey>("reload");
   const [completedAction, setCompletedAction] = useState<ActionKey>(null);
   const [showCompletionHistory, setShowCompletionHistory] = useState(false);
+  const [offDays, setOffDays] = useState<string[]>([]);
 
   useEffect(() => {
+    setOffDays(loadOffDays());
     void loadTasks();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -381,6 +385,15 @@ export default function NextweekPage() {
     flashCompleted("sort");
   }
 
+  function toggleOffDay(lane: string) {
+    const nextOffDays = offDays.includes(lane)
+      ? offDays.filter((day) => day !== lane)
+      : [...offDays, lane].filter((day) => WEEKDAY_LANES.includes(day));
+    setOffDays(nextOffDays);
+    localStorage.setItem(OFF_DAYS_KEY, JSON.stringify(nextOffDays));
+    setStatus(`${lane}曜日を${nextOffDays.includes(lane) ? "休みに設定" : "通常日に戻"}しました`);
+  }
+
   function flashCompleted(action: Exclude<ActionKey, null>) {
     setCompletedAction(action);
     window.setTimeout(() => {
@@ -532,6 +545,8 @@ export default function NextweekPage() {
                 onCompleteTask={completeTask}
                 onCarryTask={carryTask}
                 onDetailsChange={updateTaskDetails}
+                isOffDay={offDays.includes(lane)}
+                onToggleOffDay={toggleOffDay}
               />
             );
           })}
@@ -639,6 +654,8 @@ function Lane({
   onCompleteTask,
   onCarryTask,
   onDetailsChange,
+  isOffDay,
+  onToggleOffDay,
 }: {
   lane: string;
   tasks: Task[];
@@ -650,17 +667,22 @@ function Lane({
   onCompleteTask: (taskId: string) => void;
   onCarryTask: (taskId: string) => void;
   onDetailsChange: (taskId: string, patch: Partial<Pick<Task, "dueDate" | "nextAction" | "completionNote">>) => void;
+  isOffDay: boolean;
+  onToggleOffDay: (lane: string) => void;
 }) {
   const [over, setOver] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [showAllCompleted, setShowAllCompleted] = useState(false);
   const isEmpty = tasks.length === 0;
   const isDoneLane = lane === DONE_LANE;
+  const canMarkOff = WEEKDAY_LANES.includes(lane);
   const visibleLaneTasks = isDoneLane && !showAllCompleted ? tasks.slice(0, 5) : tasks;
 
   return (
     <section
-      className={`min-h-[70vh] rounded-lg border border-[#d8dee8] bg-[#eef2f6] p-3 ${collapsed ? "min-h-0" : ""} ${
+      className={`min-h-[70vh] rounded-lg border p-3 ${collapsed ? "min-h-0" : ""} ${
+        isOffDay ? "border-rose-200 bg-rose-50" : "border-[#d8dee8] bg-[#eef2f6]"
+      } ${
         over ? "outline outline-2 outline-blue-500" : ""
       }`}
       onDragOver={(event) => {
@@ -675,9 +697,27 @@ function Lane({
         if (taskId) onDropTask(taskId, lane);
       }}
     >
-      <div className="mb-3 flex items-center justify-between text-sm font-bold">
-        <span>{lane}</span>
+      <div className="mb-3 flex items-center justify-between gap-2 text-sm font-bold">
+        <div className="flex min-w-0 items-center gap-2">
+          <span>{lane}</span>
+          {isOffDay ? (
+            <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">休み</span>
+          ) : null}
+        </div>
         <div className="flex items-center gap-2">
+          {canMarkOff ? (
+            <button
+              className={`rounded border px-2 py-1 text-xs font-semibold ${
+                isOffDay
+                  ? "border-rose-300 bg-white text-rose-700 hover:bg-rose-100"
+                  : "border-slate-300 bg-white text-slate-500 hover:bg-slate-100"
+              }`}
+              onClick={() => onToggleOffDay(lane)}
+              type="button"
+            >
+              {isOffDay ? "通常" : "休み"}
+            </button>
+          ) : null}
           {isEmpty ? (
             <button
               className="rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100"
@@ -967,6 +1007,17 @@ function loadCustomTasks(): Task[] {
     const raw = localStorage.getItem(CUSTOM_TASKS_KEY);
     const tasks = raw ? (JSON.parse(raw) as Task[]) : [];
     return tasks.map((task) => ({ ...task, isCustom: true }));
+  } catch {
+    return [];
+  }
+}
+
+function loadOffDays() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(OFF_DAYS_KEY);
+    const days = raw ? (JSON.parse(raw) as string[]) : [];
+    return days.filter((day) => WEEKDAY_LANES.includes(day));
   } catch {
     return [];
   }
